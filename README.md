@@ -1,0 +1,1 @@
+Simple and efficient document-oriented in-memory storage
