@@ -7,6 +7,7 @@ import csv
 import json
 import copy
 import shutil
+import string
 import hashlib
 import uuid as uuidmod
 import itertools as it
@@ -479,8 +480,10 @@ class Collection:
         self.__dicthash__ = {}
         keys = list(__dicthash__.keys()) # Python 3 has special object dict_keys
         for ID in keys:
-            item = __dicthash__[ID]
-            self.__dicthash__[new_id_func(item)] = __dicthash__.pop(ID)
+            item = __dicthash__.pop(ID)
+            ID_ = new_id_func(item)
+            item['__id__'] = ID_
+            self.__dicthash__[ID_] = item
         return self
         
     def get(self,ID,colname):
@@ -653,21 +656,44 @@ class Collection:
         ids = self.ids()
         self.tabulate(IDs=ids[len(ids)-n:len(ids)])
     
-    def update(self,items,IDs=None):
-        if type(items) is dict:
+    # old WORKING version
+    #def update(self,items,IDs=None):
+    #    if type(items) is dict:
+    #        items = [items]
+    #    elif type(items) not in [list,tuple]:
+    #        raise Exception('Items should be either list or tuple')
+    #    if not IDs:
+    #        IDs = self.getfreeids(len(items))
+    #    #if type(IDs) is int:
+    #    #    IDs = [IDs]
+    #    elif type(IDs) is not list:
+    #        raise Exception('Wrong IDs type: %s (expected list or integer)'%type(IDs))
+    #    for ID,item in zip(IDs,items):
+    #        if ID not in self.__dicthash__:
+    #            self.__dicthash__[ID] = {}
+    #        self.__dicthash__[ID].update(item)
+
+    def update(self,items,merge=False): # this version assumes IDs are in items
+        # if merge is True, new item is blended into existing item with the same id (if present)
+        # if merge is False, new item overwrites existing item with the same id
+        #if type(items) is dict:
+        if issubclass(items.__class__,dict):
             items = [items]
         elif type(items) not in [list,tuple]:
-            raise Exception('Items should be either list or tuple')
-        if not IDs:
-            IDs = self.getfreeids(len(items))
-        #if type(IDs) is int:
-        #    IDs = [IDs]
-        elif type(IDs) is not list:
-            raise Exception('Wrong IDs type: %s (expected list or integer)'%type(IDs))
-        for ID,item in zip(IDs,items):
-            if ID not in self.__dicthash__:
-                self.__dicthash__[ID] = {}
-            self.__dicthash__[ID].update(item)
+            raise Exception('Items should be either list or tuple of dict children')
+        IDs = self.getfreeids(len(items))
+        for item in items:
+            if '__id__' not in item:
+                ID = IDs.pop(0)
+                item['__id__'] = ID
+            else:
+                ID = item['__id__']
+            if merge:
+                if ID not in self.__dicthash__:
+                    self.__dicthash__[ID] = {}
+                self.__dicthash__[ID].update(item)
+            else:
+                self.__dicthash__[ID] = item
         
     def delete(self,IDs):
         for ID in IDs:
@@ -684,23 +710,6 @@ class Collection:
                 buffer[group_value] = []
             buffer[group_value].append(ID)
         return buffer
-        
-    #def stat(self,group_buffer,operations):  # OLD
-    #    # USE ITERATORS!!!!!!!!!!
-    #    buffer = {}
-    #    for key in group_buffer:
-    #        buffer[key] = {}
-    #        subindex = {}
-    #        for ID in group_buffer[key]:
-    #            item = self.__dicthash__[ID]
-    #            for col in item:
-    #                if col in subindex:
-    #                    subindex[col].append(item[col])
-    #                else:
-    #                    subindex[col] = []
-    #        for opkey in operations:
-    #            buffer[key][opkey] = operations[opkey](subindex)
-    #    return buffer
         
     def stat(self,keyname,grpi,valname,map=None,reduce=None,plain=False):  # Taken from Jeanny v.4 with some changes
         """
@@ -777,32 +786,6 @@ class Collection:
         else:
             self.order += colnames
         
-    #def connect(self,IDs,key,col):
-    #    """
-    #    !!! ATTENTION !!!
-    #    This is an experimental join method which is very limited.
-    #    Now it can join only by one single parameter which should coincide 
-    #    with __dicthash__ key of an external collection.
-    #    This function takes IDs of items as an input and returns 
-    #    a pair (ids1,ids2), where ids1 is id column for current collection,
-    #    and ids2 is id column for external collection.
-    #    """
-    #    ids1 = []; ids2 = []
-    #    for id1 in IDs:
-    #        if id1 not in self.__dicthash__:
-    #            raise Exception('no such ID in __dicthash__: %s'%id1)
-    #        id2 = self.__dicthash__[id1][key]
-    #        if id2 in col.__dicthash__:
-    #            ids1.append(id1)
-    #            ids2.append(id2)
-    #    return ids1,ids2
-
-    # IMPORT AND EXPORT (NEXT JEANNY2 VERSION: plugins? inheritance?)
-        
-    #https://en.wikipedia.org/wiki/Comma-separated_values
-    #http://stackoverflow.com/questions/3191528/csv-in-python-adding-an-extra-carriage-return
-    #https://docs.python.org/2/library/csv.html
-
     # =======================================================
     # =================== UNROLL/UNWIND =====================
     # =======================================================
@@ -851,7 +834,7 @@ class Collection:
     # ======================= CSV ===========================
     # =======================================================
     
-    def import_csv(self,filename,delimiter=';',quotechar='"',header=None,duck=True):
+    def import_csv(self,filename,delimiter=';',quotechar='"',header=None,duck=True): # old_version
         """
         Reads csv-formatted files in more or less robust way.
         Includes avoiding many parsing errors due to "illegal"
@@ -878,7 +861,12 @@ class Collection:
                             try:
                                 val = float(val)
                             except ValueError as e:
-                                pass
+                                if val.strip().lower() in ['f','false','.false.']:
+                                    val = False
+                                elif val.strip().lower() in ['t','true','.true.']:
+                                    val = True
+                                else:
+                                    pass
                     if type(val) in [str,unicode]: # f..king encoding problems 
                         try:
                             unicode(val)
@@ -892,6 +880,25 @@ class Collection:
         self.order = colnames
         return {'nitems':nitems}
         
+    def import_csv_(self,filename): # new_version
+        """
+        Reads csv-formatted files in more or less robust way.
+        Includes avoiding many parsing errors due to "illegal"
+        usage of delimiters and quotes.
+        """
+        with open(filename, newline='') as csvfile:
+            dialect = csv.Sniffer().sniff(csvfile.read(10000))
+            csvfile.seek(0)
+            reader = csv.reader(csvfile, dialect)
+            header = next(reader)
+            items = []
+            for vals in reader:
+                item = {key:val for key,val in zip(header,vals)}
+                items.append(item)
+            self.clear()
+            self.update(items)
+            self.order = header
+        
     def export_csv(self,filename,delimiter=';',quotechar='"',order=[]):
         """
         Writes csv-formatted files in more or less robust way.
@@ -902,7 +909,6 @@ class Collection:
         the CSV file is generated.
         """
         if not order: order = self.order
-        #header = [key for key in self.keys()]
         keys = self.keys(); 
         header = [key for key in order] + \
                  [key for key in keys if key not in order] # ordered keys must go first
@@ -916,12 +922,7 @@ class Collection:
                 vals = []
                 for colname in header:
                     if colname in item: # what to do with unicode ?????????????
-                        #vals.append(str(item[colname])) # gives error if non-ascii characters are encountered
                         vals.append(unicode(item[colname]))
-                        #if type(item[colname]) in (str,unicode):# possible conflicts: Molecules vs Sources
-                        #    vals.append(item[colname].encode('utf-8')) # => unicode
-                        #else:
-                        #    vals.append(unicode(item[colname]))
                     else:
                         vals.append('')
                 writer.writerow(vals)
@@ -1049,37 +1050,6 @@ class Collection:
                 dest_col.update(item)
         dest_col.export_folder(dirname)
 
-#    def import_json_list(self,filename,id=None): # ancient version of list import
-#        """
-#        Id is the name of id field in the input file.
-#        If id=none, then it is assigned automatically.
-#        id is only considered if there is no ID_REP parameter in item.
-#        """
-#        # TODO: optimize
-#        import json
-#        import number
-#        if id:
-#            id_name = id
-#        else:
-#            id_name = ID_REP
-#        with open(filename,'r') as f:
-#            items = json.load(f)
-#        # scan #1
-#        existing_ids = []
-#        for item in items:
-#            if ID_REP in item:
-#                if isinstance(item[id_name], numbers.Number):
-#                    existing_ids.append(item[id_name])
-#        free_ids = list(set(range(max(existing_ids)))-set(existing_ids))
-#        free_ids = list(reversed(free_ids))
-#        # scan #2
-#        for item in items:
-#            if id_name in item:
-#                ID = item[id_name]
-#            else:
-#                ID = free_ids.pop()
-#            self.update(item,ID)
-
     # =======================================================
     # ===================== JSON List =======================
     # =======================================================
@@ -1102,13 +1072,7 @@ class Collection:
     # =======================================================
     # ===================== JSON Dicthash ===================
     # =======================================================
-            
-    #def import_json_dicthash(self,filename):
-    #    import json
-    #    with open(filename,'r') as f:
-    #        self.__dicthash__ = json.load(f)
-    #        self.maxid = max(self.__dicthash__.keys())
-        
+                    
     def export_json_dicthash(self,filename):
         with open(filename,'w') as f:
             #json.dump(self.__dicthash__,f,indent=2) # default "dumper"
@@ -1117,7 +1081,6 @@ class Collection:
     # =======================================================
     # ============= Fixcol/Parse from string ================
     # =======================================================
-    # THINK THIS THROUGH (ctrl+K to comment, ctrl+shift+K to uncomment the whole block)
             
     def import_fixcol(self,filename,ignore=True,substitute=None):
         """
@@ -1202,59 +1165,71 @@ class Collection:
         self.setorder(names)
         self.update(items)    
     
-    #def parse(buffer,colfix=False,delim=' ',cast=None,duck=True,head=False,skip=0)
-    #    return {'head':HAPI_HEADER,'col':col}   
-
-        # """
-        # Extract columns from the 2D buffer.
-        # Cast is a list of the types (int,str,float)
-        # and can be omitted. Cast also can be a single value.
-        # Duck=True means try to deduce the type automatically
-        # using the "duck typing" approach.
-        # If head=True, the first line contains column header.
-        # Empty lines are not accounted for in the numbering.
-        # If colfix=True, delimiter and line skipping are ignored.
-        # """
-        # lines = [line.strip() for line in buffer.split('\n') if line.strip()] #eliminate empty lines
-        # table = []
-        # vars = {'header':[]}
-        # import jeanny3 as j
-        # for i,line in enumerate(lines):        
-            # if i>0 and i<=skip: 
-                # print('slip',i)
-                # continue # skip the lines after the possible header
-            # vals = [e.strip() for e in line.split(delim) if e] # skip empty entries
-            # if i==0:
-                # if head==True:
-                    # vars['header'] = vals
-                    # print('head continue')
-                    # continue
-                # else:
-                    # vars['header'] = ['col%d'%(k+1) for k,val in enumerate(vals)]
-            # if cast is not None:
-                # if type(cast) not in [list,tuple]:
-                    # from itertools import cycle
-                    # cast = cycle(cast)
-                # for val,tp in zip(vals,cast):
-                    # val = tp(val)
-            # elif duck==True:
-                # for i,val in enumerate(vals):
-                    # try:
-                        # vals[i] = int(vals[i])
-                    # except ValueError as e:
-                        # try:
-                            # vals[i] = float(vals[i])
-                        # except ValueError as e:
-                            # pass
-            # if vals:                
-                # table.append(vals)
-        # col = j.Collection()
-        # col.update([{h:v for h,v in zip(vars['header'],tabline)} for tabline in table])
-        # return col        
+    def export_fixcol(self,filename):
+        """ 
+            ATTENTION:
+            This was done to be used ONLY if a column-fixed format is mandatory!!!
+            This function is buggy and will cause non-reversible changes in the 
+            the string values of teh items.
+            Use other export formats to achieve stability. 
+        """
         
-    # def export_colfix(self):
-        # pass
-            
+        # conversion to string accounting for None values
+        def to_str(val):
+            if val is not None:
+                return str(val)
+            else:
+                return ''
+        # get order
+        order = self.order.copy()
+        order += list( set(self.keys())-set(order) )
+        # deduce types from the collection
+        checked = set()
+        types = {}
+        ids = self.ids()
+        for id_ in ids:
+            item = self.getitem(id_)
+            if not set(order)-checked: break
+            for colname in order:
+                if colname in item and item[colname] is not None:
+                    types[colname] = type(item[colname])
+                    checked.add(colname)
+        # if items are not present, assign str type for them
+        for colname in set(order)-checked:
+            types[colname] = str
+        with open(filename,'w') as f:
+            f.write('//HEADER\n')
+            # make a header
+            tokens = string.digits+string.ascii_uppercase+string.ascii_lowercase
+            tokens = tokens[:len(order)]
+            for token,colname in zip(tokens,order):
+                f.write('%s %s %s\n'%(token,colname,types[colname].__name__))
+            f.write('\n//DATA\n')
+            # get columns and find widths
+            COLS = self.getcols(order)
+            COLS_STR = [[to_str(e) for e in col] for col in COLS]
+            get_width = lambda col: max([len(s) for s in col])
+            widths = [get_width(col) for col in COLS_STR]
+            # write tokenized header
+            dw = 3 # gap between columns
+            for token,width in zip(tokens,widths):
+                f.write(token+'_'*(width-1+dw))
+            f.write('\n')
+            # write the content, do conversion checks
+            ncols = len(COLS_STR)
+            for i in range(len(ids)):
+                for j in range(ncols):
+                    type_ = types[order[j]]
+                    strval = COLS_STR[j][i]
+                    trueval = COLS[j][i]
+                    if trueval is not None: 
+                        # this should signalize if there are conversion problems
+                        if trueval!=type_(strval):
+                            raise Exception('conversion error: ',trueval,type_(strval)) 
+                    width = widths[j]
+                    f.write('%%%ds'%(width+dw)%strval)
+                f.write('\n')
+    
     # =======================================================
     # ============= XSCDB/HAPI2.0 STUFF =====================
     # =======================================================
@@ -1542,56 +1517,6 @@ def load_dotpar(line):
         gpp                  = float( line[153:160] ),  
     )   
     return item
-
-#def tostr(par,n=None):
-#    if type(par) in [str,unicode]:
-#        #return '%%%ds'%n%par
-#        return '%s'%par
-#    elif type(par) == int:
-#        return '%%%dd'%n%par
-#    elif type(par) == float:
-#        return '%%%fd'%n%par
-
-#def dump_dotpar(item):
-#    M      = tostr(item['M'])
-#    I      = tostr(item['I'])
-#    nu     = tostr(item['nu'])
-#    S      = tostr(item['S'])
-#    A      = tostr(item['A'])
-#    gair   = tostr(item['gair'])
-#    gself  = tostr(item['gself'])
-#    E_     = tostr(item['E_'])
-#    nair   = tostr(item['nair'])
-#    dair   = tostr(item['dair'])
-#    Q      = tostr(item['Q'])
-#    Q_     = tostr(item['Q_'])
-#    q      = tostr(item['q'])
-#    q_     = tostr(item['q_'])
-#    err_nu  = tostr(item['err_nu'])
-#    err_S   = tostr(item['err_S'])
-#    err_gair  = tostr(item['err_gair'])
-#    err_gself = tostr(item['err_gself'])
-#    err_nair  = tostr(item['err_nair'])
-#    err_dair  = tostr(item['err_dair'])
-#    ref_nu    = tostr(item['ref_nu'])
-#    ref_S     = tostr(item['ref_S'])
-#    ref_gair  = tostr(item['ref_gair'])
-#    ref_gself = tostr(item['ref_gself'])
-#    ref_nair  = tostr(item['ref_nair'])
-#    ref_dair  = tostr(item['ref_dair'])
-#    g         = tostr(item['g'])
-#    g_        = tostr(item['g_'])
-#    line = ''.join(['%s' for i in range(28)])%\
-#    (
-#    M,I,nu,S,A,gair,gself,E_,nair,dair,
-#    Q,Q_,q,q_,err_nu,err_S,err_gair,
-#    err_gself,err_nair,err_dair,ref_nu,
-#    ref_S,ref_gair,ref_gself,ref_nair,
-#    ref_dair,g,g_,
-#    )
-#    if len(line) != 160:
-#        raise Exception('internal strlen error for \"\%s"'%line)  
-#    return line
         
 def import_dotpar(filename):
     col = Collection()
@@ -1599,6 +1524,7 @@ def import_dotpar(filename):
         for line in f:
             item = load_dotpar(line)
             col.update(item)
+    col.order = list(item.keys())
     return col
 
 def import_fixcol(filename):
