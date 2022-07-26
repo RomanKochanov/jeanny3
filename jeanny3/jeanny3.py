@@ -574,7 +574,7 @@ class Collection:
             for newcol,val in zip(newcols,vals):
                 item[newcol] = val
             del item[colname]
-            
+                       
     def deletecol(self,colname):
         self.deletecols(colname)
             
@@ -587,6 +587,21 @@ class Collection:
             for colname in colnames:
                 if colname in item:
                     del item[colname]
+        
+    def split(self,colname,vals):
+        """ Split collection using sharding of column by values.
+            Column 'colname' must have numeric format. """
+        cols = []
+        for i,val in enumerate(vals):
+            if i==0:
+                col = self.subset(self.ids(lambda v:v[colname]<=val))
+            else:
+                val_ = vals[i-1]
+                col = self.subset(self.ids(lambda v:val_<v[colname]<=val))
+            cols.append(col)
+        col = self.subset(self.ids(lambda v:v[colname]>val))
+        cols.append(col)
+        return cols
         
     def tabulate(self,colnames=None,IDs=-1,mode='greedy',fmt='simple',file=None,functions=None,raw=False,floatfmt=None): # switched default to "greedy" instead of "strict"
         """
