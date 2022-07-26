@@ -482,7 +482,7 @@ class Collection:
         for ID in keys:
             item = __dicthash__.pop(ID)
             ID_ = new_id_func(item)
-            item['__id__'] = ID_
+            #item['__id__'] = ID_
             self.__dicthash__[ID_] = item
         return self
         
@@ -672,43 +672,44 @@ class Collection:
         self.tabulate(IDs=ids[len(ids)-n:len(ids)])
     
     # old WORKING version
-    #def update(self,items,IDs=None):
-    #    if type(items) is dict:
-    #        items = [items]
-    #    elif type(items) not in [list,tuple]:
-    #        raise Exception('Items should be either list or tuple')
-    #    if not IDs:
-    #        IDs = self.getfreeids(len(items))
-    #    #if type(IDs) is int:
-    #    #    IDs = [IDs]
-    #    elif type(IDs) is not list:
-    #        raise Exception('Wrong IDs type: %s (expected list or integer)'%type(IDs))
-    #    for ID,item in zip(IDs,items):
-    #        if ID not in self.__dicthash__:
-    #            self.__dicthash__[ID] = {}
-    #        self.__dicthash__[ID].update(item)
-
-    def update(self,items,merge=False): # this version assumes IDs are in items
-        # if merge is True, new item is blended into existing item with the same id (if present)
-        # if merge is False, new item overwrites existing item with the same id
-        #if type(items) is dict:
-        if issubclass(items.__class__,dict):
+    def update(self,items,IDs=None):
+        if type(items) is dict:
             items = [items]
         elif type(items) not in [list,tuple]:
-            raise Exception('Items should be either list or tuple of dict children')
-        IDs = self.getfreeids(len(items))
-        for item in items:
-            if '__id__' not in item:
-                ID = IDs.pop(0)
-                item['__id__'] = ID
-            else:
-                ID = item['__id__']
-            if merge:
-                if ID not in self.__dicthash__:
-                    self.__dicthash__[ID] = {}
-                self.__dicthash__[ID].update(item)
-            else:
-                self.__dicthash__[ID] = item
+            raise Exception('Items should be either list or tuple')
+        if not IDs:
+            IDs = self.getfreeids(len(items))
+        #if type(IDs) is int:
+        #    IDs = [IDs]
+        elif type(IDs) is not list:
+            raise Exception('Wrong IDs type: %s (expected list or integer)'%type(IDs))
+        for ID,item in zip(IDs,items):
+            if ID not in self.__dicthash__:
+                self.__dicthash__[ID] = {}
+            self.__dicthash__[ID].update(item)
+
+    # new unreliable version
+    #def update(self,items,merge=False): # this version assumes IDs are in items
+    #    # if merge is True, new item is blended into existing item with the same id (if present)
+    #    # if merge is False, new item overwrites existing item with the same id
+    #    #if type(items) is dict:
+    #    if issubclass(items.__class__,dict):
+    #        items = [items]
+    #    elif type(items) not in [list,tuple]:
+    #        raise Exception('Items should be either list or tuple of dict children')
+    #    IDs = self.getfreeids(len(items))
+    #    for item in items:
+    #        if '__id__' not in item:
+    #            ID = IDs.pop(0)
+    #            item['__id__'] = ID
+    #        else:
+    #            ID = item['__id__']
+    #        if merge:
+    #            if ID not in self.__dicthash__:
+    #                self.__dicthash__[ID] = {}
+    #            self.__dicthash__[ID].update(item)
+    #        else:
+    #            self.__dicthash__[ID] = item
         
     def delete(self,IDs):
         for ID in IDs:
