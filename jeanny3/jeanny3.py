@@ -937,7 +937,7 @@ class Collection:
                 item = self.__dicthash__[ID]
                 vals = []
                 for colname in header:
-                    if colname in item: # what to do with unicode ?????????????
+                    if colname in item and item[colname] is not None:
                         vals.append(unicode(item[colname]))
                     else:
                         vals.append('')
