@@ -869,7 +869,7 @@ class Collection:
                 nitems += 1
                 item = {}
                 for colname,val in zip(colnames,vals):
-                    if val is None: continue
+                    if val in [None,'']: continue
                     if duck: # duck typing
                         try:
                             val = int(val)
