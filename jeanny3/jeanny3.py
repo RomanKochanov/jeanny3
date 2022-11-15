@@ -1007,7 +1007,7 @@ class Collection:
         self.clear()
         self.update(items)
     
-    def export_folder(self,dirname,ext='json'):
+    def export_folder(self,dirname,ext='json',default=json_serial):
         """
         Updated version with integrity checking
         to prevent overwriting items in the folder
@@ -1045,7 +1045,7 @@ class Collection:
             filename = FILENAMES[ID]
             with open(os.path.join(dirname,filename),'w') as f:
                 #json.dump(item,f,indent=2) # default "dumper"
-                json.dump(item,f,indent=2,default=json_serial) # custom "dumper"
+                json.dump(item,f,indent=2,default=default) # custom "dumper"
                      
     def update_folder(self,dirname,regex=''):
         """
@@ -1079,20 +1079,20 @@ class Collection:
         self.clear()
         self.update(items)
         
-    def export_json_list(self,filename):
+    def export_json_list(self,filename,default=json_serial):
         buffer = self.getitems(self.ids())
         with open(filename,'w') as f:
             #json.dump(buffer,f,indent=2) # default "dumper"
-            json.dump(buffer,f,indent=2,default=json_serial) # custom "dumper"
+            json.dump(buffer,f,indent=2,default=default) # custom "dumper"
 
     # =======================================================
     # ===================== JSON Dicthash ===================
     # =======================================================
                     
-    def export_json_dicthash(self,filename):
+    def export_json_dicthash(self,filename,default=json_serial):
         with open(filename,'w') as f:
             #json.dump(self.__dicthash__,f,indent=2) # default "dumper"
-            json.dump(self.__dicthash__,f,indent=2,default=json_serial) # custom "dumper"
+            json.dump(self.__dicthash__,f,indent=2,default=default) # custom "dumper"
             
     # =======================================================
     # ============= Fixcol/Parse from string ================
