@@ -347,6 +347,7 @@ class Collection:
         #return new_coll
         new_coll = Collection()
         new_coll.__dicthash__ = {ID:self.__dicthash__[ID] for ID in IDs}
+        new_coll.order = self.order
         return new_coll
     
     def cast(self,type_dict,IDs=-1):
