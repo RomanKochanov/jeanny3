@@ -11,6 +11,7 @@ import string
 import hashlib
 import uuid as uuidmod
 import itertools as it
+import functools as ft
 from datetime import date, datetime
 from warnings import warn,simplefilter
 
@@ -1641,76 +1642,95 @@ def create_from_buffer_multicol(buffer,cast={},duck=True,header=True,comment=[])
     
     return col
   
-#def join_collections(col1,col2,key,dkey,dist=None,map1=None,map2=None):
-def create_join_index(col1,key1,col2,key2,dkey,check=lambda v1,v2:True):
+def create_join_index(col1,col2,key,key2=None,inner=True):
     """ 
-    Parameter "key" MUST BE a list or tuple of lambda functions !!
-    
-    Parameter "check" is additional lambda function comparing 
-    items of col1 and col2 and giving True/False at the output.
-    
-    
-    UPDATE MANPAGE!!! IT'S OBSOLETE!!!
-    
     Join two collections by key and additional conditions.
     
     col1,col2:
         collections to join together.
-    
-    dkey:
-        Joining by key is performed by comparing the distances 
-    between the elements of the "key" tuple with the predefined 
-    threshold "dkey" tuple. If the exact matching is required, 
-    then the distance should by zero when matched, and very large 
-    number otherwise (infinity is preferred).
             
-    key:
+    key,key2:
         Key is a lambda function that must return comparable 
-    object (e.g. tuple or scalar). Key expects the collection
-    item to have certain fields, from which the key tuple is 
-    calculated unless the map1 and map2 are not specified. 
+        object (e.g. tuple or scalar).  
     
-    map1,map2:
-        Lambda functions for col1 and col2 respectively,
-    depending on the collection item.
-    Must return the dicts of the form {a0:b0,a1:b1...},
-    where (ai,bi) is keys:values for the parameters
-    expected by the "key" lambda function.
-       
-    Binary search is used to speed up the comparison. 
-    Speed also depends on the value of dkey, smaller is faster.
-    
-    """    
-    # Process dkey to match key in dimension.
-    if type(dkey) not in (list,tuple):
-        dkey = [dkey]
-            
-    # Obtain sorted indexes for both collections.
-    ids_col1 = col1.sort(lambda v: key_(v,map=map1))
-    ids_col2 = col2.sort(lambda v: key_(v,map=map2))
+    Inner: 
+        Flag to perform the inner join. 
+        If False, outer join is performed.
         
-    # Run a loop over two mutually aligned sorted collections.
-    for id1 in ids_col1:
-        # Search for a 
-        pass
+    Output:
+        Join index which is a list of ID pars (id1,id2) with
+        id1 from col1 and id2 from col2.
+    """    
+            
+    def prepare_key(key): # convert key to lambda form
+        if type(key) is str:
+            key = eval('lambda v: v["%s"]'%key)
+        elif type(key) in [tuple,list]:
+            key = eval('lambda v: (%s)'%(','.join(['v["%s"]'%k for k in key])))
+        else:
+            raise Exception('unknown key format: %s'%str(key))
+        return key
+        
+    def unroll(ids1,ids2): # unroll to list of pairs
+        pairs = []
+        for id1 in ids1:
+            for id2 in ids2:
+                pairs.append((id1,id2))
+        return pairs
+        
+    # Prepare keys and convert them to the lambda function format.
+    key = prepare_key(key)
+    if key2:
+        key2 = prepare_key(key2)
+    else:
+        key2 = key
+        
+    # Calculate indexes for both collections.
+    idx1 = col1.group(key); keys1 = set(idx1.keys())
+    idx2 = col2.group(key2); keys2 = set(idx2.keys())
+    
+    # Prepare intersection for the inner part of join.
+    keys_union = keys1.intersection(keys2)
+    
+    # Start forming the join index.
+    join_index = ft.reduce(lambda x,y:x+y,
+        [unroll(idx1[k],idx2[k]) for k in keys_union])
+    
+    # If performing outer join, add symmetric difference set to it.
+    if not inner:
+        keys_diff_12 = keys1-keys2
+        keys_diff_21 = keys2-keys1
+        
+        if keys_diff_12:
+            join_index += ft.reduce(lambda x,y:x+y,
+                [unroll(idx1[k],[None]) for k in keys_diff_12])
 
-def join(col1,col2,join_index,colnames1=lambda c:c,colnames2=lambda c:'.%s'%c):
+        if keys_diff_21:
+            join_index += ft.reduce(lambda x,y:x+y,
+                [unroll([None],idx2[k]) for k in keys_diff_21])
+            
+    return join_index
+
+def join(col1,col2,join_index,colnames1=lambda c:c,colnames2=lambda c:'_%s'%c):
     """
     Join two collection based on the result of the create_join_index function.
     Colnames 1 and 2 are lambda functions renaming colnames, havin the following format:
         colnames = lambda colname: <any name>
     """
+    
     col = Collection()
+    
     col.order = [colnames1(c) for c in col1.order] + \
                 [colnames2(c) for c in col2.order]
+    
     for id1,id2 in join_index:
         item = {}
-        if id1:
+        if id1 is not None:
             item1 = col1.getitem(id1)
             for c in item1:
                 c_ = colnames1(c)
                 item[c_] = item1[c]
-        if id2:
+        if id2 is not None:
             item2 = col2.getitem(id2)
             for c in item2:
                 c_ = colnames2(c)
@@ -1719,4 +1739,5 @@ def join(col1,col2,join_index,colnames1=lambda c:c,colnames2=lambda c:'.%s'%c):
                 else:
                     item[c_] = item2[c]
         col.update(item)
+    
     return col
