@@ -348,7 +348,9 @@ class Collection:
         #return new_coll
         new_coll = Collection()
         new_coll.__dicthash__ = {ID:self.__dicthash__[ID] for ID in IDs}
+        new_coll.__dicthash__
         new_coll.order = self.order
+        new_coll.maxid = max(IDs) if len(IDs)!=0 else -1
         return new_coll
     
     def cast(self,type_dict,IDs=-1):
