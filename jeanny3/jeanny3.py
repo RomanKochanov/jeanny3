@@ -772,13 +772,14 @@ class Collection:
         IDs_res = [e[-1] for e in sorted(vals)]
         return IDs_res
 
-    def join(self,key,col,colnames=None,prefix=''):
+    def join(self,key,col,colnames=None,prefix='',strict=True):
         """
         Join column set of external collection (colnames)
         to self using the key, assuming the following conditions:
         1) Self must contain the column named as key.
         2) Col must have the corresponding values of key in its index.
         Key can be either lambda function on item, or a field name
+        If strict==False, then ignore if colname is not in col item.
         """
         if type(key)==str:
             key_ = lambda v: v[key]
@@ -799,12 +800,14 @@ class Collection:
                 colname_ = prefix+colname
                 if colname_ in item:
                     raise Exception('Collection item already has "%s" field'%colname)
+                if not strict and colname not in external_item:
+                    continue
                 item[colname_] = external_item[colname]
                 if colnames_empty: order_set.add(colname_)
         if colnames_empty: 
             self.order += order_set
         else:
-            self.order += colnames
+            self.order += [prefix+colname for colname in colnames]
         
     # =======================================================
     # =================== UNROLL/UNWIND =====================
