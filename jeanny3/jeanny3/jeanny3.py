@@ -539,6 +539,8 @@ class Collection:
         if type(expr) == str:
             new_id_func = eval('lambda var: var["%s"]'%expr)
             #new_id_func = eval('lambda var: %s'%expr) # this is fucking confusing, don't uncomment it anymore please
+        elif type(expr) in {tuple,list}:
+            new_id_func = lambda v: tuple([v[k] for k in expr])
         else:
             new_id_func = expr # user-supplied function on item
         # check uniqueness of a new index key
@@ -856,6 +858,8 @@ class Collection:
         """
         if type(key)==str:
             key_ = lambda v: v[key]
+        elif type(key) in {tuple,list}:
+            key_ = lambda v: tuple([v[k] for k in key])
         else:
             key_ = key # expecting lambda func, returning col's index values
         if colnames is None:
