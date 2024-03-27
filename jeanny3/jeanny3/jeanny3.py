@@ -741,12 +741,12 @@ class Collection:
                     print(tabstring)
                 #return TabObject(tabstring)
                 
-    def head(self,n=10):
-        self.tabulate(IDs=self.ids()[:n])
+    def head(self,colnames=None,limit=10):
+        self.tabulate(colnames=colnames,IDs=self.ids()[:limit])
 
-    def tail(self,n=10):
+    def tail(self,colnames=None,limit=10):
         ids = self.ids()
-        self.tabulate(IDs=ids[len(ids)-n:len(ids)])
+        self.tabulate(colnames=colnames,IDs=ids[len(ids)-limit:len(ids)])
     
     # old WORKING version
     def update(self,items,IDs=None):
