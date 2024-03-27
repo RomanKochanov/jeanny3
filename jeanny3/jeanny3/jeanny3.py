@@ -795,7 +795,12 @@ class Collection:
     def group(self,expr): # TODO: add process_exp
         buffer = {}
         if type(expr)==str:
-            expr_ = eval('lambda var: var["' + expr + '"]') # simple
+            #expr_ = eval('lambda var: var["' + expr + '"]') # simple
+            colnames = expr.split()
+            if len(colnames)==1:
+                expr_ = lambda v: v[colnames[0]]
+            else:
+                expr_ = lambda v: tuple([v[k] for k in colnames])
         elif type(expr) in {list,tuple}:
             expr_ = lambda v: tuple([v[k] for k in expr])
         else:
