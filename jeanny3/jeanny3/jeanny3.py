@@ -711,6 +711,8 @@ class Collection:
             #colnames = list(self.keys().keys()) # this will prevent byg in Python3 since {}.keys() return dict_keys object instead of a list
             allkeys = list(self.keys().keys())
             colnames = self.order + list(set(allkeys)-set(self.order))
+        elif type(colnames) is str:
+            colnames = colnames.split()
 
         def in_notebook():
             # http://stackoverflow.com/questions/15411967/how-can-i-check-if-code-is-executed-in-the-ipython-notebook            
