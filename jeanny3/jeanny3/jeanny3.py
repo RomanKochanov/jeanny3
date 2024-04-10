@@ -835,7 +835,7 @@ class Collection:
             buffer[group_value].append(ID)
         return buffer
         
-    def stat(self,keyname,grpi,valname,map=None,reduce=None,plain=False):  # Taken from Jeanny v.4 with some changes
+    def stat(self,keynames,grpi,valname,map=None,reduce=None,plain=False):  # Taken from Jeanny v.4 with some changes
         """
         Calculate function on index values.
         User must provide:
@@ -858,11 +858,26 @@ class Collection:
         if plain: # return only stat index
             return stat_index 
         else: # return index-based collection
+            if type(keynames) is str:
+                keynames = keynames.split()
+            elif type(keynames) not in {tuple,list}:
+                raise Exception('keynames must be str, tuple, or list')
+            nkeys = len(keynames)
             col = Collection()
-            col.__dicthash__ = {
-                key:{keyname:key,valname:stat_index[key]} \
-                for key in stat_index}
-            col.order = [keyname,valname]
+            #col.__dicthash__ = {
+            #    key:{keyname:key,valname:stat_index[key]} \
+            #    for key in stat_index}
+            for keyvals in stat_index:
+                if nkeys==1: 
+                    keyvals_ = (keyvals,)
+                else:
+                    keyvals_ = keyvals
+                item = {}
+                for keyname,keyval in zip(keynames,keyvals_):
+                    item[keyname] = keyval
+                item[valname] = stat_index[keyvals]
+                col.__dicthash__[keyvals] = item
+            col.order = keynames + [valname,]
             return col
 
     def sort(self,colnames,IDs=-1,strict=True,mode='greedy',functions=None): # switched default to "greedy" instead of "strict"
