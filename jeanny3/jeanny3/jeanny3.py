@@ -348,9 +348,31 @@ class Collection:
         #return new_coll
         new_coll = Collection()
         new_coll.__dicthash__ = {ID:self.__dicthash__[ID] for ID in IDs}
-        new_coll.__dicthash__
+        #new_coll.__dicthash__ # ??
         new_coll.order = self.order
         new_coll.maxid = max(IDs) if len(IDs)!=0 else -1
+        return new_coll
+        
+    def subset_group(self,grpi):
+        """
+        Create subset using the group index.
+        In this case the subset IDs will be the concatenation
+        of IDs of group keys.
+        The resulting collection is a "proxy", wich means that
+        it's items are the same that the items of self.
+        """
+        new_coll = Collection()
+        dicthash = {}
+        maxid = None
+        for key in grpi:
+            ids = grpi[key]
+            for id_ in ids:
+                dicthash[id_] = self.__dicthash__[id_]
+                if maxid==None or id_>maxid: # TODO: get rid of maxid everywhere
+                    maxid = id_
+        new_coll.__dicthash__ = dicthash
+        new_coll.order = self.order
+        new_coll.maxid = maxid
         return new_coll
         
     def slice(self,colnames=None):
