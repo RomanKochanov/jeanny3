@@ -1762,7 +1762,7 @@ def load_dotpar(line):
     """
     item = dict(
         molec_id             = int(   line[  0:  2] ),
-        local_iso_id         = int(   line[  2:  3] ),
+        local_iso_id         = int(   line[  2:  3], base=16),        
         nu                   = float( line[  3: 15] ),
         sw                   = float( line[ 15: 25] ),
         a                    = float( line[ 25: 35] ),
@@ -1780,6 +1780,7 @@ def load_dotpar(line):
         gp                   = float( line[145:153] ),
         gpp                  = float( line[153:160] ),  
     )   
+    if item['local_iso_id']==10: item['local_iso_id']=0
     return item
         
 def import_dotpar(filename):
