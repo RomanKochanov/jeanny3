@@ -763,8 +763,10 @@ class Collection:
                     print(tabstring)
                 #return TabObject(tabstring)
                 
-    def head(self,colnames=None,limit=10):
-        self.tabulate(colnames=colnames,IDs=self.ids()[:limit])
+    def head(self,colnames=None,limit=10,fmt='simple',
+            functions=None,raw=False,floatfmt=None):
+        self.tabulate(colnames=colnames,IDs=self.ids()[:limit],
+            fmt=fmt,functions=functions,raw=raw,floatfmt=floatfmt)
 
     def tail(self,colnames=None,limit=10):
         ids = self.ids()
