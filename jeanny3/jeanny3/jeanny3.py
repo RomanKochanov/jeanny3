@@ -338,9 +338,15 @@ class Collection:
 #                    keys[key] += keys_[key_tuple]
 #        return keys
 
-    def subset(self,IDs=-1): # keys must be the same as in the original collection
-        if IDs==-1:
+    def subset(self,expr=None): # keys must be the same as in the original collection
+        if type(expr) is type(lambda:None):
+            IDs = self.ids(expr)
+        elif type(expr) in {list,tuple,set,dict}:
+            IDs = list(expr)
+        elif expr is None:
             IDs = self.ids()
+        else:
+            raise Exception('unknown type of input expression')
         #new_coll = Collection()
         #items = [self.__dicthash__[ID] for ID in IDs]
         #new_coll.update(items,IDs)
