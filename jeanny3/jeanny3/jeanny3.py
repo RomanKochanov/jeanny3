@@ -158,6 +158,7 @@ class Collection:
     def initialize(self,path=None,type=None,name='Default',**argv):
         self.maxid = -1
         self.order = [] # order of columns (optional)
+        self.types = {} # numpy-compatible typing header (for export to DB)
         if path:
             if not type: raise Exception('Collection type is not specified')
             if type=='csv':
@@ -609,7 +610,7 @@ class Collection:
     def getcols(self,colnames,IDs=-1,strict=True,mode=None,
                 functions=None,process=None): # get rid of "strict" argument in ver. 4.0
         """
-        Extratct columns from collection.
+        Extract columns from collection.
         If parameter "strict" set to true,
         no exception handling is performed.
         The "functions" parameter is a dictionary containing
@@ -664,6 +665,58 @@ class Collection:
         """
         colnames = [colname,]
         return self.getcols(colnames=colnames,IDs=IDs,strict=strict,mode=mode,functions=functions)[0]
+        
+    def getrows(self,colnames,IDs=-1,strict=True,mode=None,
+                functions=None,process=None): # get rid of "strict" argument in ver. 4.0
+        """
+        Extract rows from collection.
+        If parameter "strict" set to true,
+        no exception handling is performed.
+        The "functions" parameter is a dictionary containing
+        the functions on the item. It also should be present in "colnames".
+        Another update: now colname can have a properties,
+        such as "col.var"
+        __ID__ is a special parameter which corresponds to the local __dicthash__ ID.
+        """
+        # mode options: 'strict', 'silent', 'greedy'   # add this to docstring in ver. 4.0.
+        if not mode: mode = 'strict' if strict else 'silent' 
+        if not functions: functions = {}
+        #print('%s mode'%mode)
+        if IDs==-1:
+            IDs = self.ids()
+        if type(colnames) is str:
+            colnames = [colnames]
+        elif type(colnames) is not list:
+            raise Exception('Column names should be either list or string')
+        for colname in colnames:
+            if type(colname) not in [str,unicode]:
+                raise Exception('Column name should be a string')
+        rows = []
+        for ID in IDs:
+            row = []
+            for i,colname in enumerate(colnames):
+                if colname == '__ID__':
+                    row.append(ID)
+                    continue
+                try:
+                    if colname not in functions:
+                        row.append(self.get(ID,colname)) # "get" this should be a method of item in the next version of Jeanny
+                    else:
+                        row.append(functions[colname](self.__dicthash__[ID]))
+                except (KeyError, AttributeError) as e: 
+                    if mode=='strict':
+                        raise e
+                    elif mode=='silent':
+                        row.append(None)
+                    elif mode=='greedy':
+                        row.append(None)
+                    else:
+                        raise Exception('unknown mode: %s'%mode)
+                    #if strict: raise e # old version with "strict" argument
+            rows.append(row)
+        if process:
+            rows = [process(row) for row in rows]
+        return rows
         
     def splitcol(self,colname,newcols=None):
         if newcols is None:
@@ -1423,6 +1476,36 @@ class Collection:
         return hashlib.md5('%s'%[v[key] for key in sorted(v.keys())]).hexdigest()
 
     # =======================================================
+    # ============= Typing... ===============================
+    # =======================================================
+    
+    def get_types(self,nitems=None):
+        types = {}
+        dicthash = self.__dicthash__
+        if nitems is None:
+            nitems = len(dicthash)
+        for i,c in zip(range(nitems),dicthash):
+            item = dicthash[c]
+            tt = {key:type(item[key]) for key in item}
+            for key in tt:
+                ty = tt[key]
+                if key not in types:
+                    types[key] = ty
+                elif types[key] is None:
+                    types[key] = ty
+        return types
+
+    # =======================================================
+    # ============= Equality... =============================
+    # =======================================================
+        
+    def __eq__(self,other):
+        return self.types==other.types and self.__dicthash__==other.__dicthash__
+        
+    def __ne__(self,other):
+        return not self==other
+
+    # =======================================================
     # ============= Other unfinished stuff... ===============
     # =======================================================
         
@@ -2176,3 +2259,305 @@ def diff(D1,D2):
             if out: center[key] = out
         elif type(e1)==dict and type(e2)!=dict:
             out = {}
+
+######################################################################
+# STORAGE BACKENDS PART ##############################################
+# EACH BACKEND IS IMPLEMENTED AS A CONNECTION OBJECT #################
+# CONNECTIONS ALLOW READING AND WRITING TO VARIOUS FORMATS: ##########
+#       -> DATABASES                                        ##########
+#       -> BINARY STORAGES (E.G. HDF5)                      ##########
+######################################################################
+
+class StorageConnection:
+    
+    def __init__(self,*args,**kwargs):
+        
+        # Connect to the storage.
+        self.connect(*args,**kwargs)
+        
+        # Do post-init business.
+        self.__post_init__(*args,**kwargs)
+        
+    def __post_init__(self,*args,**kwargs):
+        pass
+    
+    def connect(self,*args,**kwargs): # interface
+        """
+        Open the storage and save the connector.
+        """
+        raise NotImplementedError
+        
+    def close(self): # interface
+        """
+        Close the storage.
+        """
+        raise NotImplementedError
+        
+    def get_type_header(self,sql): # interface
+        """
+        Get the type specification header for the table.
+        This specification should be a dictionary,
+        where a key is the attribute/column name,
+        and value is a type signature supported by Jeanny3.
+        """
+        raise NotImplementedError
+    
+    def table_exists(self,tablename): # interface
+        """
+        Check if the table exists in the storage.
+        """
+        raise NotImplementedError
+        
+    def create_table(self,tablename,type_header): # interface
+        """
+        Create table in the storage with respect to type header.
+        Each storage backend can have different name convertion,
+        i.e. for RDMBSs the backend expecting to recieve just a 
+        name of the table, but for hierarchical storages such as HDF5,
+        name can be a sequence of nested "datasets",
+        e.g. "dataset1/dataset2/tablename".
+        If the storage has only one table, the name can be ignored
+        by the backend.
+        """
+        raise NotImplementedError
+    
+    def insert_(self,tablename,datamatrix,keynames): # interface
+        """
+        Insert data matrix to the table.
+        Data matrix is a list of rows, each row is 
+        either a list, or a tuple having the same order
+        and having the same length as keynames.
+        """
+        raise NotImplementedError
+        
+    def select_(self,sql): # interface
+        """ 
+        Must return iterable queryset object.
+        Each row of the queryset should be a list or tuple.
+        """
+        raise NotImplementedError
+    
+    def insert(self,tablename,col):
+        """
+        Insert collection into table.
+        If type header is not specified in the collection,
+        it will be guessed from the data itself.
+        To speed up the process, specify the type header manually.
+        """
+        
+        # Get the column schema from collection.
+        if col.types is not None:
+            # Use existing type header for appending to the database.
+            type_header_col = col.types
+        else:
+            # Find the type header by calling the Collection's method.
+            type_header_col = col.get_types()
+        
+        # Check if the table exists.
+        if self.table_exists(tablename):
+            # Get the table schema from storage.
+            type_header_stor = self.get_type_header('select * from %s'%tablename)
+            if len(type_header_stor)>0: # query type header is not empty
+                # Get the intersection of keys from two schemas.
+                type_header = {
+                    key:type_header_col[key] for key in type_header_stor \
+                        if key in type_header_col
+                }
+            else: # query type header is empty
+                type_header = type_header_col
+        else:
+            # Use only the collection type header.
+            type_header = type_header_col
+            # Create table in the storage.
+            self.create_table(tablename,type_header)
+        
+        assert len(type_header)>0, "no columns to insert"
+        
+        # Create a datamatrix with fields from type_header.
+        keynames = list(type_header)
+        datamatrix = col.getrows(keynames)
+        
+        # Run backend-specific lower-level incert.
+        self.insert_(tablename,datamatrix,keynames)
+            
+    def select(self,sql,chunksize):
+        """
+        Iteratively select from storage to a sequence of collections.  
+        
+        ATTENITION: if the lower-level select_ uses a context manager
+        (i.e. "with ..." block statement), the chunksize must be not less
+        than the maximum number of rows in query result. In other case,
+        there will be a context "hang up".
+        """
+                
+        # Get the table schema from storage.
+        type_header = self.get_type_header(sql)
+        key_header = list(type_header)
+
+        # Get the iterable queryset object.
+        #queryset = iter( self.select_(sql) )
+        queryset = self.select_(sql)
+
+        # Iterate through storage by chunks.
+        while True:
+            
+            chunk = it.islice(queryset,chunksize) # itertools
+            chunk = list(chunk)
+            nitems = len(chunk)
+        
+            if nitems==0: break
+            
+            # Create and fill collection.
+            col = Collection()
+            for row in chunk:
+                item = {key:val for key,val in zip(key_header,row)}
+                col.update(item)
+
+            # Assign tabulation order to collection.
+            col.order = key_header
+            
+            # Assign type header to collection.
+            col.types = type_header
+                        
+            yield col
+
+class ClickhouseConnection(StorageConnection):
+
+    def connect(self,
+        host,
+        database,
+        username='default',
+        password=None,
+        port=None):
+            
+        import clickhouse_connect as cc
+                        
+        self.__client__ = cc.get_client(
+            host=host, 
+            port=port, 
+            database=database,
+            username=username, 
+            password=password,
+        )
+        
+    def close(self):
+        self.__client__.close()
+        
+    def __post_init__(self,*args,**kwargs):
+        
+        self.__MAP_FROM_CLHS__ = { # left -> ClickHouse type, right -> Python type
+
+            'UInt4': int,
+            'UInt8': int,
+            'UInt16': int,
+            'UInt32': int,
+            'UInt64': int,
+            'UInt128': int,
+            'UInt256': int,
+
+            'Int4': int,
+            'Int8': int,
+            'Int16': int,
+            'Int32': int,
+            'Int64': int,
+            'Int128': int,
+            'Int256': int,
+
+            'Float32': float,
+            'Float64': float,
+            
+            'String': str,
+            'FixedString': str,
+        }
+        
+        self.__MAP_TO_CLHS__ = { # left -> Python type, right -> ClickHouse type            
+            
+            int: 'Int64',
+            float: 'Float64',
+            str: 'String',            
+        }
+                
+    def get_type_header(self,sql): # interface
+        
+        # Get client and queryset objects.
+        client = self.__client__
+        sql_nolimit = re.sub('limit\s+\d+;?','',sql)
+        queryset = client.query(sql_nolimit+' limit 1') # WILL NOT WORK WITH ALREADY LIMITED QUERIES, REDO!!!
+        
+        # Get column types and names
+        colnames = queryset.column_names
+        coltypes = queryset.column_types
+        
+        # Map column types to Python types
+        coltypes = [
+            self.__MAP_FROM_CLHS__[t.__class__.__name__] for t in coltypes]
+            
+        # Get and return the type header.
+        type_header = {key:typ for key,typ in zip(colnames,coltypes)}
+        
+        #assert len(type_header)>0, "empty type header"
+        
+        return type_header
+    
+    def table_exists(self,tablename): # interface
+        client = self.__client__
+        flag = client.query('exists %s'%tablename).result_rows[0][0]
+        return bool(flag)
+        
+    def create_table(self,tablename,type_header): # interface
+        
+        # Get client object.
+        client = self.__client__
+        
+        # Get Python->ClickHouse type mapper.
+        MAP = self.__MAP_TO_CLHS__
+        
+        # Get names and types of columns.
+        colnames = list(type_header)
+        coltypes = [type_header[key] for key in colnames]
+        
+        # Get ClickHouse column types.
+        coltypes_ = [MAP[typ] for typ in coltypes]
+        
+        # Make a template for create_table command
+        #'CREATE TABLE test_command (col_1 String, col_2 DateTime) Engine MergeTree ORDER BY tuple()'
+        template = 'CREATE TABLE {TABLENAME} ({COLSPEC}) Engine {ENGINE} ORDER BY {ORDERBY}'
+        
+        # Create a command and run it using the connector.
+        command = template.format(
+            TABLENAME=tablename,
+            COLSPEC=', '.join(['%s %s'%(key,typ) for key,typ in zip(colnames,coltypes_)]),
+            ENGINE='MergeTree',
+            ORDERBY='tuple()',            
+        )
+        
+        client.command(command)
+    
+    def insert_(self,tablename,datamatrix,keynames): # interface
+        client = self.__client__
+        client.insert(table=tablename,data=datamatrix,column_names=keynames)
+        
+    def select_(self,sql): # interface
+        
+        client = self.__client__
+        
+        # set default encoding
+        ENCODING = 'utf-8'
+        
+        # Create decoding function, to convert from binary to Python string.
+        decode = lambda row: tuple(
+            [val.decode(ENCODING) if type(val) is bytes else val for val in row])
+    
+        # Generate sequence of rows in a loop.
+        with client.query_rows_stream(sql) as f:
+            for row in f:
+                row = decode(row)
+                yield row
+
+class HDF5Connection(StorageConnection):
+    pass
+
+class SQLiteConnection(StorageConnection):
+    pass
+
+
