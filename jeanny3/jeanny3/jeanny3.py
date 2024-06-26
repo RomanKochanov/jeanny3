@@ -158,7 +158,7 @@ class Collection:
     def initialize(self,path=None,type=None,name='Default',**argv):
         self.maxid = -1
         self.order = [] # order of columns (optional)
-        self.types = {} # numpy-compatible typing header (for export to DB)
+        self.types = None # numpy-compatible typing header (for export to DB)
         if path:
             if not type: raise Exception('Collection type is not specified')
             if type=='csv':
@@ -2420,6 +2420,12 @@ class StorageConnection:
             col.types = type_header
                         
             yield col
+            
+    def command(self,sql):
+        """
+        Run raw SQL command and print an output.
+        """
+        raise NotImplementedError
 
 class ClickhouseConnection(StorageConnection):
 
@@ -2553,6 +2559,9 @@ class ClickhouseConnection(StorageConnection):
             for row in f:
                 row = decode(row)
                 yield row
+                
+    def command(self,sql):
+        print( self.__client__.command(sql) )
 
 class HDF5Connection(StorageConnection):
     pass
