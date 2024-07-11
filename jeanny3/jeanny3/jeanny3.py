@@ -991,6 +991,46 @@ class Collection:
         else:
             self.order += [prefix+colname for colname in colnames]
         
+    def deduplicate(self,colnames=None):
+        """
+        Deduplicate collection using optional list of colnames.
+        If colnames are omitted, all values are used in comparisons.
+        
+        ATTENTION: in case when colnames is a subset of all columns,
+                   there can be a loss of data because other columns
+                   can be different. Generally, in this case the algorithm
+                   takes the first item in series, and discards other ones.
+        """
+        
+        def subdict(dct): 
+            if colnames is None: return dct
+            return {key:dct.get(key) for key in colnames}
+        
+        #def equal(dct1,dct2):
+        #    if colnames is None:
+        #        return dct1==dct2
+        #    else:
+        #        return subdict(dct1)==subdict(dct2)
+                        
+        def to_tuple(dct):
+            dct_ = subdict(dct)
+            return tuple(zip(dct_.keys(),dct_.values()))
+            
+        dicthash = self.__dicthash__
+        ids_sorted = sorted(dicthash,key=lambda id_: to_tuple(dicthash[id_]))
+        
+        ids_dedup = []
+        for id_ in ids_sorted:
+            if len(ids_dedup)==0:
+                ids_dedup.append(id_)
+            else:
+                current_item = dicthash[id_]
+                previous_item = dicthash[ids_dedup[-1]]
+                if to_tuple(current_item)!=to_tuple(previous_item):
+                    ids_dedup.append(id_)
+            
+        return self.subset(ids_dedup)
+        
     # =======================================================
     # =================== UNROLL/UNWIND =====================
     # =======================================================
