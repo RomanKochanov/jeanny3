@@ -732,9 +732,15 @@ class Collection:
             del item[colname]
                        
     def deletecol(self,colname):
+        """
+        Delete column from collecition.
+        """        
         self.deletecols(colname)
             
     def deletecols(self,colnames):
+        """
+        Delete columns from collecition.
+        """        
         if type(colnames) not in [list,tuple]:
             colnames = [colnames]
         for i,cname in enumerate(self.order):
@@ -743,6 +749,21 @@ class Collection:
             for colname in colnames:
                 if colname in item:
                     del item[colname]
+                    
+    def renamecol(self,oldname,newname):
+        """
+        Rename column of collection.
+        """
+        # delete from items
+        for item in self.getitems():
+            if oldname in item:
+                item[newname] = item.pop(oldname)
+        # delete from order
+        findall = lambda lst,val: [i for i,x in enumerate(lst) if x==val]
+        if self.order is not None:
+            indices = findall(self.order,oldname)
+        for ind in indices:
+            self.order[ind] = newname
         
     def split(self,colname,vals):
         """ Split collection using sharding of column by values.
@@ -1921,14 +1942,14 @@ def import_dotpar(filename):
     col.order = list(item.keys())
     return col
 
-def import_fixcol(filename):
+def import_fixcol(filename,*args,**kwargs):
     col = Collection()
-    col.import_fixcol(filename)
+    col.import_fixcol(filename,*args,**kwargs)
     return col
 
-def import_csv(filename):
+def import_csv(filename,*args,**kwargs):
     col = Collection()
-    col.import_csv(filename)
+    col.import_csv(filename,*args,**kwargs)
     return col
 
 def export_to_hapi_cache(col,table_name,LOCAL_TABLE_CACHE,HITRAN_DEFAULT_HEADER):
