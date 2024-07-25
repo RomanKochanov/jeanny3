@@ -713,7 +713,7 @@ class Collection:
                     else:
                         raise Exception('unknown mode: %s'%mode)
                     #if strict: raise e # old version with "strict" argument
-            rows.append(row)
+            rows.append(tuple(row))
         if process:
             rows = [process(row) for row in rows]
         return rows
