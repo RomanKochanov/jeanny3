@@ -779,7 +779,7 @@ class Collection:
         col = self.subset(self.ids(lambda v:v[colname]>val))
         cols.append(col)
         return cols
-        
+
     def tabulate(self,colnames=None,IDs=-1,mode='greedy',fmt='simple',file=None,functions=None,raw=False,floatfmt=None): # switched default to "greedy" instead of "strict"
         """
         Supported table formats are:
@@ -842,6 +842,81 @@ class Collection:
                 else:
                     print(tabstring)
                 #return TabObject(tabstring)
+                
+    def tabulate_latex(self,caption,label,colnames=None,IDs=None,widths=None,document=None,File=None):
+        """
+        Tabulate collection in the LaTeX format.
+        Parameters:
+            widths - list/tuple of relative column widths, should sum up to 1
+            document - document class string (e.g. 'article'); if None, then no document enclosement
+            File - filename; if None, output is printed to stdout
+              
+        """
+            
+        #widths = ''
+
+        TEMPLATE = """\\begin{{table}}[]
+\\begin{{adjustbox}}{{width=\\textwidth}}
+\\begin{{tabular}}{{{SPEC}}}
+\\hline
+{HEADER}
+\\hline
+{BODY}
+\\hline
+\\end{{tabular}}
+\\end{{adjustbox}}
+\\caption{{{CAPTION}}}
+\\label{{{LABEL}}}
+\\end{{table}}
+"""
+            
+        to_str = lambda a: str(a) if a is not None else ''
+            
+        def to_latex(val):    
+            buf = to_str(val).strip()
+            # Check if value is a math expression.
+            if len(buf)>0 and buf[0]==buf[-1]=='$':
+                return buf
+            # escape underscores
+            buf = buf.replace('_','\_')
+            return buf
+            
+        assert self.order # must be non-empty and not None
+            
+        # Initialize parameters.
+        if IDs is None: IDs = self.ids()
+        if colnames is None: colnames = self.order
+                    
+        # Get table spec depending on widths list.
+        if widths is not None:
+            SPEC = ''.join(['p{%f\\linewidth}'%w for w in widths])
+        else:
+            SPEC = ''.join(['l' for k in colnames])
+            
+        # Get header.
+        HEADER = ' & '.join(['\\textbf{%s}'%to_latex(key) for key in colnames]) + '\\\\'
+
+        # Get body.
+        LINES = []
+        for item in self.subset(IDs).getitems():
+            LINE = ' & '.join([to_latex(item.get(key)) for key in colnames]) + '\\\\'
+            LINES.append(LINE)
+        BODY = '\n'.join(LINES)
+            
+        # Get the full table LaTex snippet.
+        LATEX = TEMPLATE.format(SPEC=SPEC,HEADER=HEADER,
+            BODY=BODY,CAPTION=caption,LABEL=label)
+        
+        if document is not None:
+            LATEX = '\\documentclass{%s}\n\\usepackage{adjustbox}\n\\begin{document}\n%s\\end{document}'%\
+                (document,LATEX)
+        
+        # Print or save to file.
+        if File is None:
+            print(LATEX)
+        else:
+            with open(File,'w') as f:
+                f.write(LATEX)
                 
     def head(self,colnames=None,limit=10,fmt='simple',
             functions=None,raw=False,floatfmt=None):
@@ -2629,5 +2704,302 @@ class HDF5Connection(StorageConnection):
 
 class SQLiteConnection(StorageConnection):
     pass
+
+######################################################################
+# SPREADSHEETS FOR PRETTY-PRINTING ###################################
+######################################################################
+
+class Spreadsheet:
+    """
+    Spreadsheet for pretty-printing collections.
+    """
+    
+    def __init__(self,col=None,header=False):
+
+        if col is None:
+            self.cells = []
+
+        elif isinstance(col,Collection):
+
+            assert col.order
+            if header==True: header = col.order
+
+            if type(header) in {list,tuple}:
+                assert len(header)==len(col.order)
+                self.cells = [[SpreadsheetCell(key) for key in header]]
+            else:
+                self.cells = []
+                
+            for count,item in enumerate(col.getitems()):
+                row = []
+                for key in col.order:
+                    text = str(item[key]) if key in item else None
+                    row.append(SpreadsheetCell(text))
+                self.cells.append(row)
+                
+            self.nrows = count+1
+            if header is not None:
+                self.nrows += 1
+            self.ncols = len(col.order)
+        else:
+            raise Exception('unknown data type (Collection expected)')
+            
+    def cell(self,i,j):
+        return self.cells[i][j]
+        
+    def copy(self):
+        spread = Spreadsheet()
+        spread.nrows = self.nrows
+        spread.ncols = self.ncols
+        for row in self.cells:
+            spread.cells.append([e for e in row])
+        return spread
+
+    def select(self,ij_from,ij_to,step_i=1,step_j=1):
+        
+        spread = Spreadsheet()
+        
+        i_,j_ = ij_from
+        i,j = ij_to
+        
+        di = -step_i if i_>i else step_i
+        dj = -step_j if j_>j else step_j
+        
+        for ic in range(i_,i+1,di):
+            row = []
+            for jc in range(j_,j+1,dj):
+                row.append(self.cell(ic,jc))
+            spread.cells.append(row)
+        
+        spread.nrows = abs(i-i_+1)
+        spread.ncols = abs(j-j_+1)
+        
+        return spread
+        
+    def __getitem__(self,index):
+        
+        index_i,index_j = index
+        
+        if type(index_i) is int and type(index_j) is int:
+            return self.cells[index_i][index_j]
+        
+        def prepare_indexes(index_i,max_i):            
+            if type(index_i) is int:
+                i_ = index_i
+                i = index_i
+                step_i = 0                
+            elif type(index_i) is slice:
+                i_ = index_i.start if index_i.start is not None else 0
+                i = index_i.stop-1 if index_i.stop is not None else max_i
+                step_i = index_i.step if index_i.step is not None else 1
+                    
+            return i_,i,step_i
+            
+        i_,i,step_i = prepare_indexes(index_i,self.nrows-1)
+        j_,j,step_j = prepare_indexes(index_j,self.ncols-1)
+        
+        return self.select((i_,j_),(i,j),step_i,step_j)
+        
+    def insert(self,ij_from,spread):
+        
+        # input is a also Spreadsheet
+        datamatrix = spread.cells
+        i_,j_ = ij_from
+        
+        nrows_self = self.nrows
+        ncols_self = self.ncols
+        
+        # extend rows
+        di = (i_+spread.nrows)-nrows_self
+        if di>0: nrows_self += di
+        for _ in range(di):
+            self.cells.append([SpreadsheetCell() for _ in range(self.ncols)])
+
+        # extend columns
+        dj = (j_+spread.ncols)-ncols_self
+        if dj>0: ncols_self += dj
+        for ic in range(nrows_self):
+            self.cells[ic] += [SpreadsheetCell() for _ in range(dj)]
+        
+        # loop over cells and assign
+        for i_spread in range(spread.nrows):
+            i_self = i_ + i_spread
+            for j_spread in range(spread.ncols):
+                j_self = j_ + j_spread
+                cell = datamatrix[i_spread][j_spread] 
+                self.cells[i_self][j_self] = cell
+                
+        self.nrows = nrows_self
+        self.ncols = ncols_self
+
+    def set_attributes(self,**kwargs):
+        for attr_name in kwargs:
+            attr_value = kwargs[attr_name]
+            for i in range(self.nrows):
+                for j in range(self.ncols):
+                    self.cell(i,j).set(attr_name,attr_value)
+
+    def __add__(self,spread): 
+        """
+        Append another spreadsheet or selection to the bottom.
+        """
+        assert self.ncols==spread.ncols
+        spread_output = self.copy()
+        spread_output.nrows += spread.nrows
+        for row in spread.cells:
+            spread_output.cells.append(row)  
+        return spread_output
+        
+    def latex(self,centering=True,caption=False,label=False):
+        
+        to_str = lambda a: str(a) if a is not None else ''
+
+        def to_latex(val):    
+            buf = to_str(val).strip()
+            # Check if value is a math expression.
+            if len(buf)>0 and buf[0]==buf[-1]=='$':
+                return buf
+            # escape underscores
+            buf = buf.replace('_','\_')
+            return buf
+        
+        TEMPLATE = """\\documentclass{{article}}
+
+\\usepackage[table]{{xcolor}}
+\\usepackage{{booktabs}}
+\\usepackage{{adjustbox}}
+\\usepackage[
+    left=2cm,
+    right=2cm,
+    top=2cm,
+    bottom=2cm,
+    bindingoffset=0cm
+]{{geometry}}
+
+\\begin{{document}}
+
+\\begin{{table}}
+{CENTERING}
+\\begin{{adjustbox}}{{width=\\textwidth}}
+\\begin{{tabular}}{{{COLSPEC}}}
+{LINES}
+\\end{{tabular}}
+\\end{{adjustbox}}
+{CAPTION}
+{LABEL}
+\\end{{table}}
+
+\\end{{document}}
+"""
+        CENTERING = '\\centering' if centering else ''
+        CAPTION = '\\caption{%s}'%caption if type(caption) is str else ''
+        LABEL = '\\label{%s}'%label if type(label) is str else ''
+        
+        COLSPEC = 'l'*self.ncols
+        
+        ROWS = []
+        
+        for row in self.cells:
+            
+            BUFS = []
+            
+            BORDERS = []
+            
+            for i,cell in enumerate(row,start=1):
+                
+                #BUF = '\\verb|%s|'%cell.text if cell.text else ''
+                BUF = to_latex(cell.text) if cell.text else ''
+                
+                # add enclosing commands
+                if cell.font_bold: BUF = '\\textbf{%s}'%BUF
+                if cell.font_italic: BUF = '\\textit{%s}'%BUF
+                #..... all enclosing commands go here
+                
+                # add preceding commands
+                if cell.text_color: BUF = '\\color{%s}%s'%(cell.text_color,BUF)
+                if cell.background_color: BUF = '\\cellcolor{%s}%s'%(cell.background_color,BUF)
+                
+                # borders
+                if cell.border_bottom: BORDERS.append(i)
+                if cell.border_top: raise NotImplementedError
+                if cell.border_left: raise NotImplementedError
+                if cell.border_right: raise NotImplementedError
+                
+                BUFS.append(BUF)
+            
+            LINE = ' & '.join(BUFS) + ' \\\\'
+            
+            # set borders
+            for nbrd in BORDERS:
+                LINE += '\\cmidrule{%d-%d}'%(nbrd,nbrd)
+            
+            ROWS.append(LINE)
+            
+        LINES = '\n'.join(ROWS)
+            
+        LATEX = TEMPLATE.format(
+            CENTERING=CENTERING,
+            COLSPEC=COLSPEC,
+            LINES=LINES,
+            CAPTION=CAPTION,
+            LABEL=LABEL,
+        )
+        
+        return LATEX
+        
+    def tabulate(self):
+        from tabulate import tabulate as tab
+        print(tab(self.cells))
+        
+    def __repr__(self):
+        return 'Spreadsheet(%dx%d)'%(self.nrows,self.ncols)
+
+class SpreadsheetCell:
+    
+    ATTRIBUTE_DEFAULTS = {
+        'border_top': False,
+        'border_bottom': False,
+        'border_left': False,
+        'border_right': False,
+        'font_family': 'Arial',
+        'font_size': None, # small, tiny etc.
+        'font_bold': False,
+        'font_italic': False,
+        'text_color': None, # red, black, blue etc...
+        'background_color': None, # red, black, blue etc...
+    }
+    
+    def __init__(self,text=None,**kwargs):
+        self.text = text
+        self.spreadsheed = kwargs.get('spreadsheed',None)
+        for attr_name in self.ATTRIBUTE_DEFAULTS:
+            setattr(self,
+                attr_name,
+                kwargs.get(
+                    attr_name,
+                    self.ATTRIBUTE_DEFAULTS[attr_name]
+                )
+            )
+        
+    def set(self,attr_name,attr_value):
+        setattr(self,attr_name,attr_value)
+
+    def latex(self):
+        return self.text # no fancy stuff so far
+        
+    def get_attributes(self):
+        return {attr_name:getattr(self,attr_name) \
+            for attr_name in self.ATTRIBUTE_DEFAULTS}
+        
+    def __repr__(self):
+        return self.text if self.text else ''
+
+
+
+
+
+
+
+
 
 
