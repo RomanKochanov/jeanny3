@@ -397,8 +397,8 @@ class Collection:
                 item_ = {k:item[k] for k in colnames if k in item}
             else:
                 item_ = {k:item[k] for k in item}
-            if item_:
-                col.__dicthash__[ID] = item_
+            #if item_:
+            #    col.__dicthash__[ID] = item_ # commenting out this will allow empty items!!! (needs attention)
         if colnames:
             col.order = colnames
         else:
