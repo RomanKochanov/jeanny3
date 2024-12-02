@@ -1037,7 +1037,54 @@ class Collection:
                 col.__dicthash__[keyvals] = item
             col.order = keynames + [valname,]
             return col
-
+            
+    def stat_(self,keynames,grpi,map=None,reduce=None):
+        """
+        Calculate function on index values.
+        User must provide:
+            -> group index (grpi)
+            -> mapper and reducer functions.
+        MAPPER: item->value (can be scalar or vector)
+        REDUCER: item_dict_array->value (can be scalar or vector)
+        MAPPER and REDUCER are dicts with the same set of keys,
+           each of which is the equivalent of the valname.
+           If some keys are absent in mapper, the default 
+           mapping is used for this statkey.
+        Flat: True - return plain stat index, False - return Collection
+        """
+        if map is None: map = {}
+        if reduce is None: reduce = {}
+        
+        # Do assertions.
+        assert type(map) is dict and map # map should be a non-empty dict
+        assert type(reduce) is dict and reduce # reduce should be a non-empty dict
+        
+        # Get the sequence of keys for statistics
+        statkeys = list(reduce.keys())
+                
+        # Make first table.
+        stat = self.stat(
+            keynames,grpi,
+            statkeys[0],
+            map = map.get(statkeys[0]),
+            reduce = reduce[statkeys[0]],
+        )
+        
+        # Loop over other stats.
+        for statkey in statkeys[1:]:
+            stat.join(
+                keynames,
+                self.stat(
+                    keynames,grpi,
+                    statkey,
+                    map = map.get(statkey),
+                    reduce = reduce[statkey],
+                ),
+                [statkey]
+            )
+        
+        return stat
+    
     def sort(self,colnames,IDs=-1,strict=True,mode='greedy',functions=None): # switched default to "greedy" instead of "strict"
         """
         Return permutation of the input IDs.
