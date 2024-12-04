@@ -104,8 +104,8 @@ class Collection:
     
     #ID_REP = '$id'
 
-    def __init__(self,**argv):
-        self.initialize(**argv)
+    def __init__(self,path=None,**argv):
+        self.initialize(path=path,**argv)
         
     def __getitem__(self,ID):
         return self.getitem(ID)
@@ -155,27 +155,37 @@ class Collection:
         
         return 'Collection (%d lines)'%len(self.ids())
 
-    def initialize(self,path=None,type=None,name='Default',**argv):
+    def initialize(self,path=None,fmt=None,name='Default',**argv):
         self.maxid = -1
         self.order = [] # order of columns (optional)
         self.types = None # numpy-compatible typing header (for export to DB)
-        if path:
-            if not type: raise Exception('Collection type is not specified')
-            if type=='csv':
-                self.import_csv(path,**argv)
-            elif type=='folder':                
-                self.import_folder(path,**argv)
-            elif type=='jsonlist':
-                self.import_json_list(path,**argv)
-            elif type=='xlsx':
-                self.import_xlsx(path,**argv)
-            elif type=='fixcol':
-                self.import_fixcol(path,**argv)
+        if path is not None:
+            if type(path) is str:
+                if not fmt: raise Exception('Collection type/format is not specified')
+                if fmt=='csv':
+                    self.import_csv(path,**argv)
+                elif fmt=='folder':                
+                    self.import_folder(path,**argv)
+                elif fmt=='jsonlist':
+                    self.import_json_list(path,**argv)
+                elif fmt=='xlsx':
+                    self.import_xlsx(path,**argv)
+                elif fmt=='fixcol':
+                    self.import_fixcol(path,**argv)
+                else:
+                    raise Exception('Unknown type: %s'%fmt)
+                self.__type__ = fmt
+                self.__path__ = path
+                self.__name__ = name
+            elif type(path) is list:
+                self.__dicthash__ = {}
+                self.__name__ = ''
+                self.__path__ = './'
+                self.__type__ = '__init__'
+                self.update(path)
+                if path: self.order = list(path[0].keys())
             else:
-                raise Exception('Unknown type: %s'%type)
-            self.__type__ = type
-            self.__path__ = path
-            self.__name__ = name
+                raise Exception('unknown content type: %s'%type(path))
         else:
             self.__dicthash__ = {}
             self.__name__ = ''
