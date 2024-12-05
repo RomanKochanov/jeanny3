@@ -12,6 +12,8 @@ import hashlib
 import uuid as uuidmod
 import itertools as it
 import functools as ft
+
+from itertools import cycle
 from datetime import date, datetime
 from warnings import warn,simplefilter
 
@@ -60,6 +62,13 @@ print('jeanny, Ver.'+__version__)
 
 FILENAME_ID = '$FILENAME$' # parameter defining the filename
 ITEM_ID = '$UUID$' # id that uniquely identifies each item (used in redistribution of items between collections)
+
+SETTINGS = {
+    'FILENAME_ID': FILENAME_ID,
+    'ITEM_ID': ITEM_ID,
+    'DEBUG': False,
+    #'PLOTTING_BACKEND': 'Agg',
+}
 
 # stub for Python 3: redefining unicode
 try:
@@ -1374,6 +1383,7 @@ class Collection:
     # =======================================================
             
     def import_folder(self,dirname,regex='\.json$'):
+        FILENAME_ID = SETTINGS['FILENAME_ID']
         filenames = scanfiles(dirname,regex)
         items = []
         for filename in filenames:
@@ -1396,6 +1406,8 @@ class Collection:
         to prevent overwriting items in the folder
         in the case when there are similar file names.
         """
+        FILENAME_ID = SETTINGS['FILENAME_ID']
+        ITEM_ID = SETTINGS['ITEM_ID']
         if not os.path.isdir(dirname):
             #os.mkdir(dirname) # this doesn't work if there are sub-folders
             os.makedirs(dirname)
@@ -1436,6 +1448,7 @@ class Collection:
         !!! BOTH COLLECTIONS MUST HAVE THE SAME IDS !!!
         !!! ONE MUST USE THE FILENAME_ID FOR THESE PARAMETERS !!!
         """
+        FILENAME_ID = SETTINGS['FILENAME_ID']
         dest_col = Collection()
         if os.path.isdir(dirname):
             dest_col.import_folder(dirname,regex)
@@ -1698,6 +1711,434 @@ class Collection:
         
     def __ne__(self,other):
         return not self==other
+
+    # =======================================================
+    # ============= Plotting... =============================
+    # =======================================================
+
+    def plotlayers_lineseries(
+                    self,
+                    xkey,ykey,
+                    name=None,
+                    markerstyle=None,
+                    markersize=None,
+                    linestyle=None,
+                    color=None,
+                    functions={},
+                    options={}
+                    ):
+        """
+        xkey - list of keys of the Y axes (can be a single string key)
+        ykey - list of keys of the Y axes (can be a single string key)
+        
+        name - list of legend names, or a single name
+        
+        {markerstyle,markersize,linestyle,color,...} - specs
+        Each spec is either None, or string, or list of strings
+        
+        functions - dictionary of auxiliary lambda functions.
+        
+        options - dictionary Layer of options.
+        
+        This method returns a list of layers of type LineSeries and datatype DataPoints2D.
+        """
+        
+        if type(ykey) is str:
+            ykey = [ykey]
+
+        n_series = len(ykey)
+        if type(xkey) is str:
+            xkey = [xkey]*n_series
+            
+        assert len(xkey)==len(ykey)
+        
+        for yk in ykey:
+            assert type(yk) is str # ykey must be str! otherwise use "functions" argument
+        
+        columns = self.getcols(xkey+ykey,functions=functions,mode='greedy')
+        
+        x_columns = columns[:n_series]
+        y_columns = columns[n_series:]
+        
+        dtype = DataPoints2D
+        ltype = LineSeries
+        lopts = LineSeriesOptions(**options)
+        lopts['line_style'] = ''
+                
+        def process(spec):        
+            if spec is None or type(spec) in {str,int,float}:
+                spec = [spec]*len(ykey)
+            else:
+                spec = cycle(spec)
+            return spec
+        
+        markerstyle = process(markerstyle)
+        markersize = process(markersize)
+        linestyle = process(linestyle)
+        color = process(color)
+        name = process(name)
+        
+        layers = []
+
+        for xcol,ycol,yk,nm,mrkst,mrksz,lnst,clr in zip(
+                x_columns,
+                y_columns,
+                ykey,
+                name,
+                markerstyle,
+                markersize,
+                linestyle,
+                color,
+        ):
+            
+            rows = [(x,y) for x,y in zip(xcol,ycol) if x is not None and y is not None]
+            if not rows: continue
+            
+            x,y = list(zip(*rows))
+            data = dtype(x,y)
+            
+            lopts_ = lopts.copy()
+            if mrkst is not None: lopts_['marker_style'] = mrkst
+            if mrksz is not None: lopts_['marker_size'] = mrksz
+            if lnst is not None: lopts_['line_style'] = lnst
+            if clr is not None: lopts_['line_color'] = clr
+            if clr is not None: lopts_['marker_color'] = clr
+                
+            #lopts_['line_style'] = ''
+            #lopts_['marker_style'] = 'o'
+            #lopts_['marker_size'] = 20
+                
+            if not nm: nm = yk
+            
+            layer = ltype(data,nm,lopts_)
+            layers.append(layer)
+        
+        return layers
+    
+    def plot(
+                self,
+                xkey,ykey,
+                xlabel=None,
+                ylabel=None,
+                name=None,
+                markerstyle=None,
+                markersize=None,
+                linestyle=None,
+                color=None,
+                logscale_x=False,
+                logscale_y=False,
+                size=False,
+                functions={},
+                axes_options={},
+                layer_options={},
+                ):
+        """
+        Simple plot of lineseries.
+        """
+        
+        # Create Axes options.
+        aopts = AxesOptions(**axes_options)
+        if logscale_x: aopts['x_axis_logscale_on'] = True
+        if logscale_y: aopts['y_axis_logscale_on'] = True
+        if xlabel: aopts['x_axis_label'] = xlabel
+        if ylabel: aopts['y_axis_label'] = ylabel
+            
+        # Create plot options.
+        popts = {}
+        if size: popts['size'] = size
+                
+        # Create layers.
+        layers = self.plotlayers_lineseries(
+            xkey,ykey,
+            name=name,
+            markerstyle=markerstyle,
+            markersize=markersize,
+            linestyle=linestyle,
+            color=color,
+            functions=functions,
+            options=layer_options,
+        )
+        
+        ax = Axes(layers,options=aopts)
+        ax.plot(size=size)
+        
+    def plotlayers_errorbars(
+                    self,
+                    xkey,ykey,yerrkey,
+                    xerrkey=None,
+                    name=None,
+                    markerstyle=None,
+                    markersize=None,
+                    linestyle=None,
+                    color=None,
+                    functions={},
+                    options={}
+                    ):
+        """
+        xkeys - list of keys of the Y axes (can be a single string key)
+        ykeys - list of keys of the Y axes (can be a single string key)
+        yerrkeys - list of keys of the Y errorbar axes (can be a single string key)
+        xerrkeys - list of keys of the X errorbar axes (can be a single string key or None)
+        
+        {markerstyle,markersize,linestyle,color,...} - specs
+        Each spec is either None, or string, or list of strings
+        
+        functions - dictionary of auxiliary lambda functions.
+        
+        options - dictionary Layer of options.
+        
+        This method returns a list of layers of type Errorbars and datatype DataErrorbars.
+        """
+        
+        if type(ykey) is str:
+            ykey = [ykey]
+
+        n_series = len(ykey)
+        if type(xkey) is str:
+            xkey = [xkey]*n_series
+        
+        if type(yerrkey) is str:
+            yerrkey = [yerrkey]*n_series
+        
+        xerrkey = [xerrkey]*n_series if type(xerrkey) is str else None
+        
+        if xerrkey is None:
+            assert len(xkey)==len(ykey)==len(yerrkey)
+        else:
+            assert len(xkey)==len(ykey)==len(yerrkey)==len(xerrkey)
+        
+        for i in range(n_series):
+            assert type(xkey[i]) is str
+            assert type(ykey[i]) is str
+            assert type(yerrkey[i]) is str
+            if xerrkey is not None: assert type(xerrkey[i]) is str
+        
+        columns = self.getcols(xkey+ykey+yerrkey,functions=functions,mode='greedy')
+        
+        x_columns = columns[:n_series]
+        y_columns = columns[n_series:2*n_series]
+        yerr_columns = columns[2*n_series:]
+        
+        assert len(x_columns)==len(y_columns)==len(yerr_columns)==n_series # debug
+        
+        if xerrkey is not None:
+            xerr_columns = self.getcols(xerrkey,functions=functions,mode='greedy')
+        else:
+            xerr_columns = [None]*n_series
+        
+        dtype = DataErrorbars
+        ltype = Errorbars
+        lopts = ErrorbarsOptions(**options)
+        lopts['line_style'] = ''
+                
+        def process(spec):        
+            if spec is None or type(spec) in {str,int,float}:
+                spec = [spec]*len(ykey)
+            else:
+                spec = cycle(spec)
+            return spec
+        
+        markerstyle = process(markerstyle)
+        markersize = process(markersize)
+        linestyle = process(linestyle)
+        color = process(color)
+        name = process(name)
+        
+        layers = []
+
+        for xcol,ycol,yerr_col,xerr_col,yk,nm,mrkst,mrksz,lnst,clr in zip(
+                x_columns,
+                y_columns,
+                yerr_columns,
+                xerr_columns,
+                ykey,
+                name,
+                markerstyle,
+                markersize,
+                linestyle,
+                color,
+        ):
+            
+            if xerr_col is None: # X errorbars are omitted
+                rows = [(x,y,yerr) for x,y,yerr in zip(xcol,ycol,yerr_col) \
+                        if x is not None and y is not None and yerr is not None]
+                if not rows: continue            
+                x,y,yerr = list(zip(*rows))
+                data = dtype(x,y,yerr)
+            else: # X errorbars are included
+                rows = [(x,y,yerr,xerr) for x,y,yerr,xerr in zip(xcol,ycol,yerr_col,xerr_col) \
+                        if x is not None and y is not None and yerr is not None and xerr is not None]
+                if not rows: continue            
+                x,y,yerr,xerr = list(zip(*rows))
+                data = dtype(x,y,yerr,xerr)
+            
+            lopts_ = lopts.copy()
+            if mrkst is not None: lopts_['marker_style'] = mrkst
+            if mrksz is not None: lopts_['marker_size'] = mrksz
+            if lnst is not None: lopts_['line_style'] = lnst
+            if clr is not None: lopts_['line_color'] = clr
+            if clr is not None: lopts_['marker_color'] = clr
+            if clr is not None: lopts_['errorbar_color'] = clr    
+                                
+            if not nm: nm = yk
+            
+            layer = ltype(data,nm,lopts_)
+            layers.append(layer)
+        
+        return layers
+
+    def plot_errorbars(
+                self,
+                xkey,ykey,yerrkey,
+                xerrkey=None,                
+                xlabel=None,
+                ylabel=None,
+                name=None,
+                markerstyle=None,
+                markersize=None,
+                linestyle=None,
+                color=None,
+                logscale_x=False,
+                logscale_y=False,
+                size=False,
+                functions={},
+                axes_options={},
+                layer_options={},
+                ):
+        """
+        Plot of lineseries with errorbars.
+        """
+        
+        # Create Axes options.
+        aopts = AxesOptions(**axes_options)
+        if logscale_x: aopts['x_axis_logscale_on'] = True
+        if logscale_y: aopts['y_axis_logscale_on'] = True
+        if xlabel: aopts['x_axis_label'] = xlabel
+        if ylabel: aopts['y_axis_label'] = ylabel
+            
+        # Create plot options.
+        popts = {}
+        if size: popts['size'] = size
+                
+        # Create layers.
+        layers = self.plotlayers_errorbars(
+            xkey,ykey,
+            yerrkey,xerrkey,
+            name=name,
+            markerstyle=markerstyle,
+            markersize=markersize,
+            linestyle=linestyle,
+            color=color,
+            functions=functions,
+            options=layer_options,
+        )
+        
+        ax = Axes(layers,options=aopts)
+        ax.plot(size=size)
+        
+    def plotlayers_text(
+                    self,
+                    xkey,ykey,textkey,
+                    name=None,
+                    font_color=None,
+                    font_size = None,
+                    functions={},
+                    options={}
+                    ):
+        """
+        xkey - key of the X axis
+        ykey - key of the Y axes
+        textkey - key of the text axes
+        
+        {color,...} - specs
+        Each spec is either None, or string, or list of strings
+        
+        functions - dictionary of auxiliary lambda functions.
+        
+        options - dictionary of options for Text layer.
+        
+        This method layers of type Text and datatype DataText.
+        """
+        
+        assert type(ykey) is str # ykey must be str! otherwise use "functions" argument
+        assert type(textkey) is str # textkey must be str! otherwise use "functions" argument
+        
+        columns = self.getcols([xkey,ykey,textkey],functions=functions,mode='greedy')
+        
+        dtype = DataText
+        ltype = Text
+        lopts = TextOptions(**options)
+        
+        layers = []
+        xcol = columns[0]
+        ycol = columns[1]
+        textcol = columns[2]
+                
+        rows = [(x,y,txt) for x,y,txt in zip(xcol,ycol,textcol) \
+                if x is not None and y is not None and txt is not None]
+        
+        x,y,txt = list(zip(*rows))
+        data = dtype(x,y,txt)
+        
+        if font_color is not None: lopts['font_color'] = font_color
+        if font_size is not None: lopts['font_size'] = font_size
+            
+        layer = ltype(data,name,lopts)
+        
+        return [layer]
+    
+    def plotlayers_fillbetween(
+                    self,
+                    xminkey,xmaxkey,
+                    yminkey,ymaxkey,
+                    name,
+                    color='grey',
+                    alpha=None,
+                    functions={},
+                    options={}
+                    ):
+        """
+        xminkey,xmaxkey - keys for the ranges on X
+        yminkey,ymaxkey - keys for the ranges on Y
+        
+        {color,alpha,...} - specs
+        Each spec is either None, or string, or list of strings
+        
+        functions - dictionary of auxiliary lambda functions.
+        
+        options - dictionary of options for Text layer.
+        
+        This method layers of type FillBetween and datatype DataFillBetween.
+        """
+        
+        assert type(xminkey) is str
+        assert type(xmaxkey) is str
+        assert type(yminkey) is str
+        assert type(ymaxkey) is str
+                
+        columns = self.getcols([xminkey,xmaxkey,yminkey,ymaxkey],functions=functions,mode='greedy')
+        
+        dtype = DataFillBetween
+        ltype = FillBetween
+        lopts = FillBetweenOptions(**options)
+        
+        xmin_col = columns[0]
+        xmax_col = columns[1]
+        ymin_col = columns[2]
+        ymax_col = columns[3]
+                
+        rows = [(xmin,xmax,ymin,ymax) for xmin,xmax,ymin,ymax in zip(xmin_col,xmax_col,ymin_col,ymax_col) \
+                if xmin is not None and xmax is not None and ymin is not None and ymax is not None]
+        
+        xmin,xmax,ymin,ymax = list(zip(*rows))
+        data = dtype(xmin,xmax,ymin,ymax)
+        
+        if color is not None: lopts['color'] = color
+        if alpha is not None: lopts['alpha'] = alpha
+            
+        layer = ltype(data,name,lopts)
+        
+        return [layer]
 
     # =======================================================
     # ============= Other unfinished stuff... ===============
@@ -3052,12 +3493,1057 @@ class SpreadsheetCell:
     def __repr__(self):
         return self.text if self.text else ''
 
+######################################################################
+# OBJECTS FOR PLOTTING COLLECTIONS ###################################
+######################################################################
 
+# USEFUL LINKS ON PLOTTING
+# https://matplotlib.org/stable/gallery/subplots_axes_and_figures/subfigures.html
+# https://stackoverflow.com/questions/21001088/how-to-add-different-graphs-as-an-inset-in-another-python-graph
+# https://stackoverflow.com/questions/16150819/common-xlabel-ylabel-for-matplotlib-subplots
+# https://stackoverflow.com/questions/73331245/how-to-adjust-gridspec-spacing
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.gridspec.GridSpec.html#matplotlib.gridspec.GridSpec
+# https://matplotlib.org/stable/gallery/subplots_axes_and_figures/figure_size_units.html
+# https://stackoverflow.com/questions/11637929/remove-padding-from-matplotlib-plotting
+# https://stackoverflow.com/questions/3130072/matplotlib-savefig-image-trim
+# https://stackoverflow.com/questions/18619880/adjust-figure-margin
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.figure.html
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.margins.html
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.suptitle.html
+# https://stackoverflow.com/questions/30108923/whats-the-difference-between-title-and-suptitle
+# https://matplotlib.org/3.2.1/api/_as_gen/matplotlib.pyplot.figure.html
+# https://github.com/microsoft/vscode-jupyter/issues/9486
+# https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.savefig.html
+# https://matplotlib.org/stable/users/explain/figure/backends.html#the-builtin-backends
+# https://stackoverflow.com/questions/11837979/removing-white-space-around-a-saved-image
+# https://blog.rtwilson.com/easily-hiding-items-from-the-legend-in-matplotlib/
+# https://github.com/matplotlib/matplotlib/issues/17139/    BUG WITH THE ORDER OF PLOTS IN LEGEND WHEN USING ERRORBAR
 
+###################################
+# ABSTRACTIONS FOR THE DATA POINTS
+###################################
 
+class PlotData: 
+    """
+    Abstract class for line-series, supplies data for 2D and 3D plots.
+    """
+    
+    __args__ = []
+    
+    def __init__(self,*args,**kwargs):
+        raise NotImplementedError
+        
+    def clone(self,**kwargs):
+        kwargs_obj = {k:getattr(self,k) for k in self.__args__}
+        for k in kwargs:
+            kwargs_obj[k] = kwargs[k]
+        obj = self.__class__(**kwargs_obj)
+        return obj
+        
+class DataPoints2D(PlotData):
+    """
+    Points for two-dimensional plots (scatters, line plots, bar plots etc...)
+    """
+    
+    __args__ = ['x','y','s']
+    
+    def __init__(self,x,y,s=None):
+        self.x = x
+        self.y = y
+        self.s = s # sizes
+        
+class DataPoints3D(PlotData):
+    """
+    Points for three-dimensional plots (meshes and surfaces)
+    """
+    
+    __args__ = ['x','y','z','s']
+    
+    def __init__(self,x,y,z,s=None):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.s = s # sizes
 
+class DataText(PlotData):
+    """
+    Text data for textboxes.
+    """
+    
+    __args__ = ['x','y','text']
+    
+    def __init__(self,x,y,text):
+        
+        if type(x) in {float,int}: x = [x]
+        if type(y) in {float,int}: y = [y]
+        if type(text) in {str}: text = [text]
+                    
+        assert type(x) in {list,tuple}
+        assert type(y) in {list,tuple}
+        assert type(text) in {list,tuple}
+        
+        self.text = text
+        self.x = x
+        self.y = y
 
+class DataErrorbars(PlotData):
+    """
+    Text data for textboxes.
+    """
+    
+    __args__ = ['x','y','yerr','xerr']
+    
+    def __init__(self,x,y,yerr,xerr=None):                            
+        self.x = x
+        self.y = y
+        self.yerr = yerr
+        self.xerr = xerr
 
+class DataFillBetween(PlotData):
+    """
+    Text data for filled rectangle area.
+    """
+    
+    __args__ = ['xmin','xmax','ymin','ymax']
+    
+    def __init__(self,xmin,xmax,ymin,ymax):                            
 
+        if type(xmin) in {float,int}: xmin = [xmin]
+        if type(xmax) in {float,int}: xmax = [xmax]
+        if type(ymin) in {float,int}: ymin = [ymin]
+        if type(ymax) in {float,int}: ymax = [ymax]
+                    
+        assert type(xmin) in {list,tuple}
+        assert type(xmax) in {list,tuple}
+        assert type(ymin) in {list,tuple}
+        assert type(ymax) in {list,tuple}
+        
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        
+#######################################
+# ABSTRACTIONS FOR THE OPTIONS OBJECTS
+#######################################
 
+class Options:
+    """
+    Abstract class for options for layers, axes etc...
+    """
 
+    __defaults__ = {}
+    
+    def __init__(self,**kwargs):
+        self.options = self.__defaults__.copy()
+        for key in kwargs:
+            if key in self.__defaults__:
+                self.options[key] = kwargs[key]
+            else:
+                raise Exception('unknown option "%s"'%key)
+            
+    def __repr__(self):
+        return '%s style class with options:\n%s'%(
+            self.__class__.__name__,
+            json.dumps(self.options,indent=3)
+        )
+    
+    def __getitem__(self,name):
+        return self.options[name]
+    
+    def __setitem__(self,name,value):
+        assert name in self.options
+        self.options[name] = value
+        
+    def __iter__(self):
+        return iter(self.options)
+    
+    def copy(self):
+        opts = self.__class__()
+        opts.options = self.options.copy()
+        return opts
+
+class LineSeriesOptions(Options):
+    """
+    LineSeries options
+    """
+    
+    __defaults__ = {
+        'marker_color': None,
+        'marker_style': '.',
+        'marker_size': None,
+        'marker_alpha': None,
+        'line_style': '-',
+        'line_color': None,
+        'line_width': None,
+    }
+
+class TextOptions(Options):
+    """
+    Text options
+    """
+    
+    __defaults__ = {
+        'clip_on': True,
+        #'transform': None, # transaxes=>axes coords, default=>data coords
+        'floating': False, # # transform=="transaxes"=>axes coords, default=>data coords
+        'box_color': None,
+        'box_alpha': None,
+        'box_style': None, # round, 
+        'font_color': None,
+        'font_size': None,
+        'font_style': None,
+        'font_family': None,
+    }
+    
+class ScatterOptions(Options):
+    """
+    Scatter options
+    """
+    
+    __defaults__ = {
+        'marker_color': None,
+        'marker_style': '.',
+        'marker_size': None,
+        'marker_alpha': None,
+        'line_style': '-',
+        'line_color': None,
+        'line_width': None,
+    }
+
+class ErrorbarsOptions(Options):
+    """
+    Errorbars options
+    """
+    
+    __defaults__ = {
+        'marker_color': None,
+        'marker_style': '.',
+        'marker_size': None,
+        'marker_alpha': None,
+        'line_style': '-',
+        'line_color': None,
+        'line_width': None,
+        'errorbar_color': None,
+        'errorbar_width': None,
+    }
+
+class FillBetweenOptions(Options):
+    """
+    Fill options
+    """
+    
+    __defaults__ = {
+        'color': None,
+        'alpha': None,
+    }
+    
+class AxesOptions(Options):
+    """
+    Axes options
+    """
+
+    __defaults__ = {
+        'legend_on': True,
+        'legend_font_size': None,
+        'legend_font_style': None,
+        'legend_font_family': None,
+        'legend_markerscale': None,
+        'legend_borderpad': None,
+        'legend_location': None,
+        'grid_on': True,
+        'grid_which': None, # major {'major', 'minor', 'both'}
+        'grid_axis': None, # both {'both', 'x', 'y'}
+        'x_axis_limits': None,
+        'y_axis_limits': None,
+        'z_axis_limits': None,
+        'x_axis_label': None,
+        'y_axis_label': None,
+        'z_axis_label': None,
+        'x_axis_label_show': True,
+        'y_axis_label_show': True,
+        'z_axis_label_show': True,
+        'x_axis_label_font_family': None,
+        'y_axis_label_font_family': None,
+        'z_axis_label_font_family': None,
+        'x_axis_label_font_size': None,
+        'y_axis_label_font_size': None,
+        'z_axis_label_font_size': None,
+        'x_axis_label_font_style': None,
+        'y_axis_label_font_style': None,
+        'z_axis_label_font_style': None,
+        'x_axis_logscale_on': None,
+        'y_axis_logscale_on': None,
+        'z_axis_logscale_on': None,
+        'x_axis_ticks_labels': None,
+        'y_axis_ticks_labels': None,
+        'z_axis_ticks_labels': None,
+        'x_axis_ticks_font_family': None,
+        'y_axis_ticks_font_family': None,
+        'z_axis_ticks_font_family': None,
+        'x_axis_ticks_font_size': None,
+        'y_axis_ticks_font_size': None,
+        'z_axis_ticks_font_size': None,
+    }
+
+class FigureOptions(Options):
+    """
+    Figure options
+    """
+    
+    __defaults__ = {
+        'size': None,
+        'dpi': None,
+        'suptitle': None,
+        'suptitle_x': None, # def. 0.5
+        'suptitle_y': None, # def. 0.98
+        'suptitle_font_family': None,
+        'suptitle_font_size': None,
+        'suptitle_font_style': None,
+        'margins': None,
+        'margins_x': None,
+        'margins_y': None,
+        'margins_tight': True,
+        'xlabel': None,
+        'xlabel_font_family': None,
+        'xlabel_font_size': None,
+        'xlabel_font_style': None,
+        'xlabel_x': 0.5,
+        'xlabel_y': 0.04,
+        'ylabel': None,
+        'ylabel_font_family': None,
+        'ylabel_font_size': None,
+        'ylabel_font_style': None,
+        'ylabel_x': 0.04,
+        'ylabel_y': 0.5,
+    }
+
+class GridSpecOptions(Options):
+    """
+    GridSpec options
+    """
+    
+    __defaults__ = {
+        'space_between_plots_height': None,
+        'space_between_plots_width': None,
+    }
+    
+########################################
+# ABSTRACTIONS FOR THE PLOTTING ROUTINES
+########################################
+
+class Layer:
+    """
+    Abstract class for the axes objects (line plots, scatters, ...).
+    """
+    
+    __in_legend__ = True
+
+    __options_class__ = Options
+        
+    def __init__(self,data,name=None,options=None):
+        
+        if options is None: options = self.__options_class__()
+        
+        assert isinstance(options,self.__options_class__)
+        
+        self.assert_data(data)
+        self.data = data
+        self.name = name     
+        self.options = options
+        
+    def clone(self,**kwargs):
+        
+        obj = self.__class__(
+            data = self.data,
+            name = self.name
+        )
+                
+        obj.options = self.options.copy()
+        for key in kwargs:
+            obj.options[key] = kwargs[key]
+        
+        return obj
+        
+    def assert_data(self):
+        raise NotImplementedError
+        
+    def plot(self,ax): # main drawing function, like plot/scatter/surface etc...
+        raise NotImplementedError
+        
+class LineSeries(Layer):
+    """
+    Simple two-dimentional line or point plot.
+    """
+    
+    __options_class__ = LineSeriesOptions
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataPoints2D)
+        
+    def plot(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        x = self.data.x
+        y = self.data.y
+                
+        MAP = {
+            'marker_color': 'markerfacecolor',
+            'marker_style': 'marker',
+            'marker_size': 'markersize',
+            'marker_alpha': 'alpha',
+            'line_style': 'linestyle',
+            'line_color': 'color',
+            'line_width': 'linewidth',
+        }
+        
+        opts = self.options
+        opts = {MAP[key]:opts[key] \
+                for key in opts if opts[key] is not None}
+        
+        if DEBUG: print('LineSeries.plot:',opts)
+
+        mpl_ax.plot(x,y,**opts)
+
+class Scatter(Layer):
+    """
+    Simple two-dimentional line or point plot.
+    """
+    
+    __options_class__ = ScatterOptions # stub, not implemented yet
+    
+    def assert_data(self,pnts):
+        assert isinstance(pnts,DataPoints2D)
+
+    def plot(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        x = self.data.x
+        y = self.data.y
+        s = self.data.s
+                
+        MAP = {
+            'marker_color': 'markercolor',
+            'marker_style': 'marker',
+            'marker_size': 'markersize',
+            'marker_alpha': 'alpha',
+            'line_style': 'linestyle',
+            'line_color': 'color',
+            'line_width': 'linewidth',
+        }
+        
+        opts = self.options
+        opts = {MAP[key]:opts[key] \
+                for key in opts if opts[key] is not None}
+        
+        if s is not None: opts['s'] = s
+        
+        if DEBUG: print('Scatter.plot:',opts)
+            
+        mpl_ax.scatter(x,y,**opts)
+
+class Errorbars(Layer):
+    """
+    Simple two-dimentional line or point plot.
+    """
+    
+    __options_class__ = ErrorbarsOptions
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataErrorbars)
+        
+    def plot(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        x = self.data.x
+        y = self.data.y
+        yerr = self.data.yerr
+        xerr = self.data.xerr
+        
+        MAP = {
+            'marker_color': 'markerfacecolor',
+            'marker_style': 'marker',
+            'marker_size': 'markersize',
+            'marker_alpha': 'alpha',
+            'line_style': 'linestyle',
+            'line_color': 'color',
+            'line_width': 'linewidth',
+            'errorbar_color': 'ecolor',
+            'errorbar_width': 'elinewidth',
+        }
+                
+        opts = self.options
+        kwargs = {MAP[key]:opts[key] \
+                for key in opts if opts[key] is not None}
+        
+        # The following is the dirty hack dealing with the bug of Matplotlib
+        # when the errorbars messes up the order of legend markers.
+            
+        dummy_plot_kwargs = {}
+        if opts['marker_style'] is not None: 
+            dummy_plot_kwargs['marker'] = opts['marker_style']
+        if opts['marker_color'] is not None: 
+            dummy_plot_kwargs['color'] = opts['marker_color']
+        if opts['marker_size'] is not None: 
+            dummy_plot_kwargs['markersize'] = opts['marker_size']
+        #if opts['line_style'] is not None: 
+        #    dummy_plot_kwargs['linestyle'] = opts['line_style']
+        #if opts['line_color'] is not None: 
+        #    dummy_plot_kwargs['color'] = opts['line_color']
+        if opts['line_width'] is not None: 
+            dummy_plot_kwargs['linewidth'] = opts['line_width']
+
+        dummy_plot_kwargs['linestyle'] = '-'
+            
+        if DEBUG: print('Errorbars.plot dummy:',dummy_plot_kwargs)
+
+        obj, = mpl_ax.plot([],[],**dummy_plot_kwargs)
+        if opts['marker_color'] is None: 
+            color = obj.get_color()
+            kwargs['markerfacecolor'] = color
+            kwargs['color'] = color
+            
+        kwargs['zorder'] = -1
+        
+        if DEBUG: print('Errorbars.plot:',kwargs)
+        
+        mpl_ax.errorbar(x,y,yerr,xerr,**kwargs)
+
+class FillBetween(Layer):
+    """
+    Discrete area filling between multiple X and Y bounds.
+    """
+    
+    __options_class__ = FillBetweenOptions
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataFillBetween)
+        
+    def plot(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        xmin = self.data.xmin
+        xmax = self.data.xmax
+        ymin = self.data.ymin
+        ymax = self.data.ymax
+        
+        n = len(xmin)
+                
+        MAP = {
+            'color': 'color',
+            'alpha': 'alpha',
+        }
+        
+        opts = self.options
+        opts = {MAP[key]:opts[key] \
+                for key in opts if opts[key] is not None}
+        
+        if DEBUG: print('FillBetween.plot:',opts)
+
+        # get delta
+        xx = sorted(xmin+xmax)
+        delta = min([x2-x1 for x1,x2 in zip(xx[:-1],xx[1:])])
+        
+        for i,x_,x,y_,y in zip(range(n),xmin,xmax,ymin,ymax):
+            if i==0:
+                mpl_ax.fill_between([x_,x],y_,y,**opts)
+            else:
+                mpl_ax.fill_between([x_,x],y_,y,label='_nolegend_',**opts)
+        
+class Surface(Layer):
+    """
+    Simple three-dimentional surface.
+    """
+    
+    __options_class__ = type(None) # stub, not implemented yet
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataPoints2D)
+
+    def plot(self,ax):
+        raise NotImplementedError
+
+class Text(Layer):
+    """
+    Text layer tied to the coordinates.
+    """
+    
+    __in_legend__ = False
+    
+    __options_class__ = TextOptions
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataText)
+        
+    def plot(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        text = self.data.text
+ 
+        x = self.data.x
+        y = self.data.y
+        
+        opts = self.options
+
+        kwargs = {}
+
+        # Handle font options.
+        MAP = {
+            'font_color': 'color',
+            'font_size': 'size',
+            'font_style': 'style',
+            'font_family': 'family',
+        }
+        fontdict = {MAP[key]:opts[key] \
+                    for key in MAP if opts[key] is not None} 
+        if fontdict:
+            kwargs['fontdict'] = fontdict
+
+        # Handle box options.
+        MAP = {
+            'box_color': 'facecolor',
+            'box_alpha': 'alpha',
+            'box_style': 'boxstyle',
+        }
+        props = {MAP[key]:opts[key] \
+                    for key in MAP if opts[key] is not None}
+        if props:
+            kwargs['bbox'] = props
+        
+        # Handle transform of the x,y coords
+        #if opts['transform'] is not None:
+        #    if opts['transform'].lower()=='transaxes':
+        #        kwargs['transform'] = mpl_ax.transAxes
+        #    else:
+        #        raise Exception('error in parameter:','transform')
+        if opts['floating']:
+            kwargs['transform'] = mpl_ax.transAxes
+        
+        # Handle other options.
+        
+        MAP = {
+            'clip_on': 'clip_on',
+        }
+        
+        opts = self.options
+        opts = {MAP[key]:opts[key] \
+                for key in MAP if opts[key] is not None}
+        kwargs.update(opts)
+
+        if DEBUG: print('Text.plot:',kwargs)
+        
+        #mpl_ax.text(x,y,text,**kwargs)
+        for x_,y_,text_ in zip(x,y,text):
+            mpl_ax.text(x_,y_,text_,**kwargs)
+        
+###################################
+# ABSTRACTIONS FOR THE AXES OBJECTS
+###################################
+
+class Axes:
+    """
+    Abstract class for the multidimensional axes.
+    """
+    
+    def __init__(self,layers,options=None):
+        
+        if options is None: options = AxesOptions()
+        
+        assert isinstance(options,AxesOptions)
+        self.options = options #includes x/y limits and other axes-specific things
+        
+        self.layers = []
+        if isinstance(layers,Layer):
+            layers = [layers]
+        
+        self.named_layers = {}
+        
+        self.insert_layers(layers)
+                    
+        self.insets = []
+        
+    def insert_layers(self,layers):    
+        for layer in layers:
+            assert isinstance(layer,Layer)
+            self.layers.append(layer)
+            if layer.name is not None:
+                self.named_layers[layer.name] = layer
+        
+    def add_inset(self,ins):
+        assert isinstance(ins,AxesInset)
+        self.insets.append(ins)
+            
+    def clone(self,**kwargs):
+        obj = self.__class__([])
+        layers = [layer.clone() for layer in self.layers]
+        obj.insert_layers(layers)
+        obj.options = self.options.copy()
+        for key in kwargs:
+            obj.options[key] = kwargs[key]
+        return obj
+        
+    def add_layers(self,layers):
+        layer_names = [layer.name for layer in layers if layer.name]
+        common_names = set(self.named_layers).intersection(layer_names)
+        if common_names:
+            raise Exception('already have layers with such names:',
+                list(common_names))
+        for layer in layers:
+            self.layers.append(layer)
+            if layer.name is not None:
+                self.named_layers[layer.name] = layer
+                
+    def add_layer(self,layer):
+        self.add_layers([layer])
+            
+    def get_layer(self,layer_name):
+        return self.named_layers[layer_name]
+    
+    def __getitem__(self,layer_name):
+        return self.get_layer(layer_name)
+    
+    def plot_(self,mpl_ax):
+        
+        DEBUG = SETTINGS['DEBUG']
+                
+        opts = self.options
+        
+        # Drawing layers.
+        for layer in self.layers:
+            layer.plot(mpl_ax)
+
+        # Handling legend.
+        if 'legend_on' in opts and opts['legend_on']:
+            
+            leg = [layer.name for layer in self.layers if layer.__in_legend__]
+            
+            leg_kwargs = {}
+            leg_prop = {}
+            
+            # more legend font params - see link:
+            #https://www.freecodecamp.org/news/how-to-change-legend-fontsize-in-matplotlib/
+            
+            # "PROP"
+            
+            MAP = {
+                'legend_font_size': 'size',
+                'legend_font_family': 'family',
+                'legend_font_style': 'style',
+            }
+            
+            for key in MAP:
+                if opts[key] is not None:
+                    leg_prop[MAP[key]] = opts[key]
+                            
+            if leg_prop: leg_kwargs['prop'] = leg_prop
+
+            MAP = {
+                'legend_borderpad': 'borderpad',
+                'legend_location': 'loc',
+                'legend_markerscale': 'markerscale',
+            }
+
+            # OTHER KWARGS
+            
+            for key in MAP:
+                if opts[key] is not None:
+                    leg_kwargs[MAP[key]] = opts[key]
+
+            # more legend font params - see link:
+            # https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.legend.html
+            
+            if DEBUG: print('Axes.legend:',leg,leg_kwargs)
+            
+            mpl_ax.legend(leg,**leg_kwargs)
+        
+        # Handling grid lines.
+        if 'grid_on' in opts and opts['grid_on']:
+
+            grid_kwargs = {'visible':True}
+            
+            if DEBUG: print('Axes.grid:',grid_kwargs)
+            
+            mpl_ax.grid(**grid_kwargs)
+        
+        # Handling axes.
+        for axes_name in ['x','y','z']:
+            
+            # set axes limits
+            opt_name = '%s_axis_limits'%axes_name
+            if opt_name in opts:
+                opt_value = opts[opt_name]
+                if opt_value: 
+                    if DEBUG: print('Axes.set_%slim:'%axes_name,opt_value)
+                    getattr(mpl_ax,'set_%slim'%axes_name)(opt_value)
+                    
+            # set axes labels
+            label = opts['%s_axis_label'%axes_name]
+            label_show = opts['%s_axis_label_show'%axes_name]
+            if label and label_show:
+            
+                label = opts['%s_axis_label'%axes_name]
+                
+                # collect font properties
+                label_kwargs = {}
+                fontdict = {}
+                    
+                font_opt_name = '%s_axis_label_font_size'%axes_name
+                if font_opt_name in opts: fontdict['size'] = opts[font_opt_name]
+
+                font_opt_name = '%s_axis_label_family'%axes_name
+                if font_opt_name in opts: fontdict['family'] = opts[font_opt_name]
+                        
+                if fontdict: label_kwargs['fontdict'] = fontdict
+                    
+                if DEBUG: print('Axes.set_%slabel:'%axes_name,label,label_kwargs)
+                getattr(mpl_ax,'set_%slabel'%axes_name)(label,**label_kwargs)
+                
+            # set axes ticks
+            tick_kwargs = {}
+            font_opt_name = '%s_axis_ticks_font_family'%axes_name
+            if opts[font_opt_name] is not None: tick_kwargs['labelfontfamily'] = opts[font_opt_name]
+            font_opt_name = '%s_axis_ticks_font_size'%axes_name
+            if opts[font_opt_name] is not None: tick_kwargs['labelsize'] = opts[font_opt_name]
+            if tick_kwargs: mpl_ax.tick_params(axis=axes_name,**tick_kwargs)
+
+            # set axes scales
+            opt_name = '%s_axis_logscale_on'%axes_name
+            opt_value = opts[opt_name]
+            if opt_value:
+                if DEBUG: print('Axes.set_%sscale:'%axes_name,opt_value)
+                getattr(mpl_ax,'set_%sscale'%axes_name)('log')
+                    
+        # Handling inset axes.
+        for inset in self.insets:
+            inset_ax = inset.axes
+            inset_pos = inset.position
+            inset_size = inset.size
+            inset_mpl_ax = mpl_ax.inset_axes(inset_pos+inset_size)
+            inset_ax.plot_(inset_mpl_ax)
+            
+    def plot(self,**kwargs):
+        Figure(self,options=FigureOptions(**kwargs)).plot()
+
+    def savefig(self,fname,dpi=150,pad_inches=0.03,bbox_inches="tight",backend='agg',
+                facecolor='white',transparent=False,**kwargs):
+        Figure(self,options=FigureOptions(**kwargs)).savefig(
+            fname,dpi=dpi,pad_inches=pad_inches,bbox_inches=bbox_inches,
+            backend=backend,facecolor=facecolor,transparent=transparent
+        )
+
+class AxesInset:
+    """
+    Class for insets.
+    """
+    
+    def __init__(self,ax,position,size): # position and size are in the relative units
+        
+        assert isinstance(ax,Axes)
+        
+        self.axes = ax
+        self.position = position
+        self.size = size
+                    
+#######################################
+# ABSTRACTIONS FOR THE GRIDSPEC OBJECTS
+#######################################
+
+class GridSpec:
+    """
+    Class for defining the gridspec.
+    """
+        
+    def __init__(self,ni,nj,options=None):
+        
+        if options is None: options = GridSpecOptions()
+        
+        assert isinstance(options,GridSpecOptions)
+        self.options = options
+    
+        self.ni = ni
+        self.nj = nj
+        self.items = []
+    
+    def __setitem__(self,ij,obj):
+        
+        def getindexbounds(ispec,ni):
+            if type(ispec) is int:
+                istart = ispec
+                iend = ispec
+            elif type(ispec) is slice:
+                istart = ispec.start
+                iend = ispec.stop if ispec.stop is not None else ni-1
+            else:
+                raise Exception('wrong index specification (%s)'%str(ispec))
+            return istart,iend
+        
+        i,j = ij
+        istart,iend = getindexbounds(i,self.ni)
+        jstart,jend = getindexbounds(j,self.nj)
+        gsitem = GridSpecItem(obj,istart,iend,jstart,jend)
+        self.items.append(gsitem)
+        
+    def __plot_subgridspec__(self,fig,gs,mpl_gs=None):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        if DEBUG: print('GridSpec.__plot_subgridspec__:',gs.ni,gs.nj)
+        
+        def get_gridspec_kwargs(gs):
+            opts = gs.options
+            kwargs = {}
+            if opts['space_between_plots_height']: kwargs['hspace'] = opts['space_between_plots_height']
+            if opts['space_between_plots_width']: kwargs['wspace'] = opts['space_between_plots_width']
+            return kwargs
+        
+        if mpl_gs is None:
+            import matplotlib.gridspec as gridspec
+            mpl_gs_kwargs = get_gridspec_kwargs(gs)
+            mpl_gs = gridspec.GridSpec(gs.ni,gs.nj,figure=fig,**mpl_gs_kwargs)
+
+        for item in gs.items:
+            
+            obj = item.object
+
+            slice_i = slice(item.istart,item.iend+1)
+            slice_j = slice(item.jstart,item.jend+1)
+            mpl_gs_slice = mpl_gs[slice_i,slice_j]
+
+            if isinstance(obj,Axes):
+                mpl_ax = fig.add_subplot(mpl_gs_slice)
+                if DEBUG: print(
+                    'GridSpec.<plot_axes>:',item.istart,item.iend,item.jstart,item.jend)
+                obj.plot_(mpl_ax)
+            elif isinstance(obj,GridSpec):
+                if DEBUG: print('GridSpec.<plot_subgridspec>')
+                sub_gs_kwargs = get_gridspec_kwargs(obj)
+                mpl_sub_gs = mpl_gs_slice.subgridspec(obj.ni,obj.nj,**sub_gs_kwargs)
+                self.__plot_subgridspec__(fig,obj,mpl_sub_gs)
+        
+    def plot(self,fig):
+        if SETTINGS['DEBUG']: print('GridSpec.plot')
+        self.__plot_subgridspec__(fig,self)
+        
+class GridSpecItem:
+    """
+    Gridspec item.
+    The init function takes i,j specifiers as an input.
+    The i,j specifiers can be either integers or slice objects.
+    """
+    
+    def __init__(self,obj,istart,iend,jstart,jend):
+        
+        assert isinstance(obj,GridSpec) or isinstance(obj,Axes)
+        
+        self.object_type = type(obj)
+        self.object = obj
+        self.istart = istart
+        self.iend = iend
+        self.jstart = jstart
+        self.jend = jend
+
+#######################################
+# ABSTRACTIONS FOR THE FIGURE OBJECTS
+#######################################
+
+class Figure:
+    """
+    Class for defining the figure.
+    """
+    
+    def __init__(self,gridspec,options=None):
+        
+        if options is None: options = FigureOptions()
+                                
+        #assert isinstance(gridspec,GridSpec)
+        assert (isinstance(gridspec,GridSpec) or isinstance(gridspec,Axes))
+        
+        if isinstance(gridspec,Axes):
+            axes = gridspec
+            gridspec = GridSpec(1,1)
+            gridspec[0,0] = axes
+        
+        self.grispec = gridspec
+        self.options = options
+        
+    def plot_(self):
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        import matplotlib as mpl
+        import matplotlib.pyplot as plt
+
+        if DEBUG: print('Figure.plot_')
+        
+        opts = self.options
+        kwargs = {}
+        
+        if opts['dpi']: kwargs['dpi'] = opts['dpi']
+        if opts['size']: kwargs['figsize'] = opts['size']
+        
+        mpl_fig = plt.figure(**kwargs)
+        self.grispec.plot(mpl_fig)
+        
+        opts = self.options
+        
+        #plt.tight_layout() # doesn't work?
+
+        if opts['xlabel']: 
+            xlabel_x = opts['xlabel_x']
+            xlabel_y = opts['xlabel_y']
+            kwargs = dict(ha='center')
+            fontdict = {}
+            if opts['xlabel_font_family'] is not None: fontdict['family'] = opts['xlabel_font_family']
+            if opts['xlabel_font_size'] is not None: fontdict['size'] = opts['xlabel_font_size']
+            if opts['xlabel_font_style'] is not None: fontdict['style'] = opts['xlabel_font_style']
+            if fontdict: kwargs['fontdict'] = fontdict
+            mpl_fig.text(xlabel_x,xlabel_y,opts['xlabel'],**kwargs)
+        
+        if opts['ylabel']: 
+            ylabel_x = opts['ylabel_x']
+            ylabel_y = opts['ylabel_y']
+            kwargs = dict(va='center',rotation='vertical')
+            fontdict = {}
+            if opts['ylabel_font_family'] is not None: fontdict['family'] = opts['ylabel_font_family']
+            if opts['ylabel_font_size'] is not None: fontdict['size'] = opts['ylabel_font_size']
+            if opts['ylabel_font_style'] is not None: fontdict['style'] = opts['ylabel_font_style']
+            if fontdict: kwargs['fontdict'] = fontdict            
+            mpl_fig.text(ylabel_x,ylabel_y,opts['ylabel'],**kwargs)
+        
+        if opts['suptitle']: 
+            kwargs = {}
+            if opts['suptitle_x']: kwargs['x'] = opts['suptitle_x']
+            if opts['suptitle_y']: kwargs['y'] = opts['suptitle_y']
+            fontprops = {}
+            if opts['suptitle_font_family']: fontprops['family'] = opts['suptitle_font_family']
+            if opts['suptitle_font_size']: fontprops['size'] = opts['suptitle_font_size']
+            if opts['suptitle_font_style']: fontprops['style'] = opts['suptitle_font_style']
+            if fontprops: kwargs['fontproperties'] = fontprops
+            plt.suptitle(opts['suptitle'],**kwargs)
+        
+        if opts['margins']:
+            kwargs = {}
+            if opts['margins_x']: kwargs['x'] = opts['margins_x']
+            if opts['margins_y']: kwargs['y'] = opts['margins_y']
+            if opts['margins_tight'] is not None: kwargs['tight'] = opts['margins_tight']
+            mrg = [opts['margins']] if type(opts['margins']) in {float} else opts['margins']
+            plt.margins(*mrg,**kwargs)
+
+    def plot(self):
+        self.plot_() # first matplotlib imports should be in plot_
+        import matplotlib.pyplot as plt
+        plt.show()
+        
+    def savefig(self,fname,
+                dpi=150,pad_inches=0.03,bbox_inches="tight",backend='agg',
+                facecolor='white',transparent=False):
+        self.plot_() # first matplotlib imports should be in plot_
+        import matplotlib.pyplot as plt
+        plt.savefig(fname=fname,dpi=dpi,pad_inches=pad_inches,
+            bbox_inches=bbox_inches,backend=backend,facecolor=facecolor,transparent=transparent)
+        plt.close() # don't display plot, just close
