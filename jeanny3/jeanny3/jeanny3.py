@@ -1821,12 +1821,15 @@ class Collection:
                 xlabel=None,
                 ylabel=None,
                 name=None,
+                title=None,
                 markerstyle=None,
                 markersize=None,
                 linestyle=None,
                 color=None,
                 logscale_x=False,
                 logscale_y=False,
+                xlim=None,
+                ylim=None,
                 size=False,
                 functions={},
                 axes_options={},
@@ -1840,8 +1843,11 @@ class Collection:
         aopts = AxesOptions(**axes_options)
         if logscale_x: aopts['x_axis_logscale_on'] = True
         if logscale_y: aopts['y_axis_logscale_on'] = True
+        if title: aopts['title'] = title
         if xlabel: aopts['x_axis_label'] = xlabel
         if ylabel: aopts['y_axis_label'] = ylabel
+        if xlim: aopts['x_axis_limits'] = xlim
+        if ylim: aopts['y_axis_limits'] = ylim
             
         # Create plot options.
         popts = {}
@@ -1994,12 +2000,15 @@ class Collection:
                 xlabel=None,
                 ylabel=None,
                 name=None,
+                title=None,
                 markerstyle=None,
                 markersize=None,
                 linestyle=None,
                 color=None,
                 logscale_x=False,
                 logscale_y=False,
+                xlim=None,
+                ylim=None,
                 size=False,
                 functions={},
                 axes_options={},
@@ -2013,8 +2022,11 @@ class Collection:
         aopts = AxesOptions(**axes_options)
         if logscale_x: aopts['x_axis_logscale_on'] = True
         if logscale_y: aopts['y_axis_logscale_on'] = True
+        if title: aopts['title'] = title
         if xlabel: aopts['x_axis_label'] = xlabel
         if ylabel: aopts['y_axis_label'] = ylabel
+        if xlim: aopts['x_axis_limits'] = xlim
+        if ylim: aopts['y_axis_limits'] = ylim
             
         # Create plot options.
         popts = {}
@@ -3744,6 +3756,12 @@ class AxesOptions(Options):
     """
 
     __defaults__ = {
+        'title': None,
+        'title_pad': None,
+        'title_location': None,
+        'title_font_family': None,
+        'title_font_size': None,
+        'title_font_style': None,
         'legend_on': True,
         'legend_font_size': None,
         'legend_font_style': None,
@@ -4216,6 +4234,35 @@ class Axes:
         # Drawing layers.
         for layer in self.layers:
             layer.plot(mpl_ax)
+            
+        # Handling title.
+        if 'title' in opts and opts['title']:
+            
+            title_kwargs = {}
+            title_fontdict = {}
+                        
+            MAP = {
+                'title_pad': 'pad',
+                'title_location': 'loc',
+            }
+            
+            for key in MAP:
+                if opts[key] is not None:
+                    title_kwargs[MAP[key]] = opts[key]
+            
+            MAP = {
+                'title_font_size': 'size',
+                'title_font_family': 'family',
+                'title_font_style': 'style',
+            }
+            
+            for key in MAP:
+                if opts[key] is not None:
+                    title_fontdict[MAP[key]] = opts[key]
+                    
+            if title_fontdict: title_kwargs['fontdict'] = title_fontdict
+            
+            mpl_ax.set_title(opts['title'],**title_kwargs)
 
         # Handling legend.
         if 'legend_on' in opts and opts['legend_on']:
