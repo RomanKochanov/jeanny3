@@ -2916,7 +2916,7 @@ def diff(D1,D2):
 ######################################################################
 
 class StorageConnection:
-    
+        
     def __init__(self,*args,**kwargs):
         
         # Connect to the storage.
@@ -2927,7 +2927,7 @@ class StorageConnection:
         
     def __post_init__(self,*args,**kwargs):
         pass
-    
+
     def connect(self,*args,**kwargs): # interface
         """
         Open the storage and save the connector.
@@ -2948,7 +2948,7 @@ class StorageConnection:
         and value is a type signature supported by Jeanny3.
         """
         raise NotImplementedError
-    
+                    
     def table_exists(self,tablename): # interface
         """
         Check if the table exists in the storage.
@@ -2983,7 +2983,15 @@ class StorageConnection:
         Each row of the queryset should be a list or tuple.
         """
         raise NotImplementedError
-    
+
+    def get_table_exists_exception(self):
+        """
+        Get exception which occures when connections tries 
+        to create a table. This is done to prevent such exceptions
+        when running multiple inserts in concurrent mode.
+        """
+        return Exception
+
     def insert(self,tablename,col):
         """
         Insert collection into table.
@@ -3016,7 +3024,11 @@ class StorageConnection:
             # Use only the collection type header.
             type_header = type_header_col
             # Create table in the storage.
-            self.create_table(tablename,type_header)
+            try:
+                self.create_table(tablename,type_header)
+            except self.get_table_exists_exception(): 
+                # this block is reachable when running multiple inserts in parallel
+                pass
         
         assert len(type_header)>0, "no columns to insert"
         
@@ -3185,7 +3197,11 @@ class ClickhouseConnection(StorageConnection):
         )
         
         client.command(command)
-    
+
+    def get_table_exists_exception(self):
+        from clickhouse_connect.driver.exceptions import DatabaseError
+        return DatabaseError
+
     def insert_(self,tablename,datamatrix,keynames): # interface
         client = self.__client__
         client.insert(table=tablename,data=datamatrix,column_names=keynames)
