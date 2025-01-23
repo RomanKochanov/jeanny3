@@ -1307,7 +1307,7 @@ class Collection:
             self.update(items)
             self.order = header
         
-    def export_csv(self,filename,delimiter=';',quotechar='"',order=[]):
+    def export_csv(self,filename,delimiter=';',quotechar='"',order=[],append=False):
         """
         Writes csv-formatted files in more or less robust way.
         Includes avoiding many parsing errors due to "illegal"
@@ -1320,11 +1320,13 @@ class Collection:
         keys = self.keys(); 
         header = [key for key in order] + \
                  [key for key in keys if key not in order] # ordered keys must go first
-        with open(filename,'w') as f:
+        fmode = 'a' if append else 'w'
+        headflag = not append or not os.path.exists(filename)
+        with open(filename,fmode) as f:
             writer = csv.writer(f,delimiter=delimiter,
                   quotechar=quotechar,lineterminator='\n',
                   quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(header)
+            if headflag: writer.writerow(header)
             for ID in self.__dicthash__:
                 item = self.__dicthash__[ID]
                 vals = []
