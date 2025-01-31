@@ -800,7 +800,7 @@ class Collection:
         cols.append(col)
         return cols
 
-    def tabulate(self,colnames=None,IDs=-1,mode='greedy',fmt='simple',file=None,functions=None,raw=False,floatfmt=None): # switched default to "greedy" instead of "strict"
+    def tabulate(self,colnames=None,IDs=-1,mode='greedy',fmt='simple',file=None,append=None,functions=None,raw=False,floatfmt=None): # switched default to "greedy" instead of "strict"
         """
         Supported table formats are:
         
@@ -847,9 +847,9 @@ class Collection:
         from tabulate import tabulate as tab # will make my own tabulator in the future
         data = self.getcols(colnames,IDs=IDs,mode=mode,functions=functions)  
         if file:
-            with open(file,'w') as f:
+            with open(file,'a' if append else 'w') as f:
                 tabstring = tab(zip(*data),colnames,tablefmt=fmt,floatfmt=floatfmt)
-                f.write(tabstring)
+                f.write(tabstring+'\n')
         else:
             if in_notebook():
                 from IPython.core.display import display, HTML
