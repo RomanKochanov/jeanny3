@@ -3787,6 +3787,7 @@ class AxesOptions(Options):
         'legend_markerscale': None,
         'legend_borderpad': None,
         'legend_location': None,
+        'legend_alpha': None,
         'grid_on': True,
         'grid_which': None, # major {'major', 'minor', 'both'}
         'grid_axis': None, # both {'both', 'x', 'y'}
@@ -3811,6 +3812,12 @@ class AxesOptions(Options):
         'x_axis_logscale_on': None,
         'y_axis_logscale_on': None,
         'z_axis_logscale_on': None,
+        'x_axis_ticks_on': None,
+        'y_axis_ticks_on': None,
+        'z_axis_ticks_on': None, 
+        'x_axis_ticks_labels_on': None,
+        'y_axis_ticks_labels_on': None,
+        'z_axis_ticks_labels_on': None,
         'x_axis_ticks_labels': None,
         'y_axis_ticks_labels': None,
         'z_axis_ticks_labels': None,
@@ -4311,6 +4318,7 @@ class Axes:
                 'legend_borderpad': 'borderpad',
                 'legend_location': 'loc',
                 'legend_markerscale': 'markerscale',
+                'legend_alpha': 'framealpha',
             }
 
             # OTHER KWARGS
@@ -4368,13 +4376,24 @@ class Axes:
                 if DEBUG: print('Axes.set_%slabel:'%axes_name,label,label_kwargs)
                 getattr(mpl_ax,'set_%slabel'%axes_name)(label,**label_kwargs)
                 
-            # set axes ticks
-            tick_kwargs = {}
-            font_opt_name = '%s_axis_ticks_font_family'%axes_name
-            if opts[font_opt_name] is not None: tick_kwargs['labelfontfamily'] = opts[font_opt_name]
-            font_opt_name = '%s_axis_ticks_font_size'%axes_name
-            if opts[font_opt_name] is not None: tick_kwargs['labelsize'] = opts[font_opt_name]
-            if tick_kwargs: mpl_ax.tick_params(axis=axes_name,**tick_kwargs)
+            # set axes ticks            
+            ticks_on = '%s_axis_ticks_on'%axes_name
+            ticks_labels_on = '%s_axis_ticks_labels_on'%axes_name
+            if opts[ticks_on] is False:
+                getattr(mpl_ax,'set_%sticks'%axes_name)([])
+            elif opts[ticks_labels_on] is False:
+                getattr(mpl_ax,'set_%sticklabels'%axes_name)([])
+            else:
+                # set labels
+                opt_name = '%s_axis_ticks_labels'%axes_name
+                if opts[opt_name]: getattr(mpl_ax,'set_%sticks'%axes_name)(opts[opt_name])
+                # change labels props
+                tick_kwargs = {}
+                font_opt_name = '%s_axis_ticks_font_family'%axes_name
+                if opts[font_opt_name] is not None: tick_kwargs['labelfontfamily'] = opts[font_opt_name]
+                font_opt_name = '%s_axis_ticks_font_size'%axes_name
+                if opts[font_opt_name] is not None: tick_kwargs['labelsize'] = opts[font_opt_name]
+                if tick_kwargs: mpl_ax.tick_params(axis=axes_name,**tick_kwargs)
 
             # set axes scales
             opt_name = '%s_axis_logscale_on'%axes_name
