@@ -3379,11 +3379,12 @@ class Spreadsheet:
             spread_output.cells.append(row)  
         return spread_output
         
-    def latex(self,document=True,centering=True,caption=False,label=False,width=None):
+    def to_latex(self,document=True,centering=True,caption=False,
+        label=False,width=None,header=True):
         
         to_str = lambda a: str(a) if a is not None else ''
 
-        def to_latex(val):    
+        def process_latex(val):    
             buf = to_str(val).strip()
             # Check if value is a math expression.
             if len(buf)>0 and buf[0]==buf[-1]=='$':
@@ -3440,7 +3441,7 @@ class Spreadsheet:
             for i,cell in enumerate(row,start=1):
                 
                 #BUF = '\\verb|%s|'%cell.text if cell.text else ''
-                BUF = to_latex(cell.text) if cell.text else ''
+                BUF = process_latex(cell.text) if cell.text else ''
                 
                 # add enclosing commands
                 if cell.font_bold: BUF = '\\textbf{%s}'%BUF
@@ -3482,6 +3483,79 @@ class Spreadsheet:
             LATEX = DOC_TEMPLATE.format(TABLE=LATEX)
         
         return LATEX
+
+    def to_html(self,document=True,centering=True,caption=False,
+        label=False,width=None,header=True):
+        
+        DOC_TEMPLATE = r"""
+<html>
+<head>
+   <meta charset="utf-8">
+</head>
+<body>
+{TABLE}
+</body>
+</html>
+""".strip()
+
+        TABLE_TEMPLATE = r"""
+<table class="table" {ID} style="{WIDTH_STYLE} {ALIGN}">{CAPTION}
+  {LINES}
+</table>
+
+""".strip()
+
+        CAPTION_TEMPLATE = r"""
+  <caption style="caption-side: top">
+    {CAPTION}
+  </caption>
+""".rstrip()
+
+        ID = 'id="%s"'%label if label else ''
+        WIDTH_STYLE = 'width:%.0f%%;'%(width*100) if width else ''
+        ALIGN = 'margin: 0 auto; text-align: center' if centering else ''
+
+        TH_STYLE = "background-color: #f2f2f2; border-bottom: 2px solid #000"
+        
+        if caption:
+            CAPTION = CAPTION_TEMPLATE.format(CAPTION=caption)
+        else:
+            CAPTION = ''
+
+        CELLS = self.cells
+        
+        LINES = []
+        
+        # Process header.
+        if header:
+            HEAD = CELLS[0]
+            CELLS = CELLS[1:]
+            LINES.append('  <tr>')
+            for cell in HEAD:
+                LINES.append('    <th style="%s">%s</th>'%(TH_STYLE,cell.text))
+            LINES.append('  </tr>')
+            
+        # Process table body.
+        for row in CELLS:
+            LINES.append('  <tr>')
+            for cell in row:
+                LINES.append('    <td>%s</th>'%cell.text)
+            LINES.append('  </tr>')
+            
+        LINES = '\n'.join(LINES)
+        
+        HTML = TABLE_TEMPLATE.format(
+            ID=ID,
+            WIDTH_STYLE=WIDTH_STYLE,
+            ALIGN=ALIGN,
+            CAPTION=CAPTION,
+            LINES=LINES,
+        )
+        
+        if document:
+            HTML = DOC_TEMPLATE.format(TABLE=HTML)
+            
+        return HTML
         
     def tabulate(self):
         from tabulate import tabulate as tab
