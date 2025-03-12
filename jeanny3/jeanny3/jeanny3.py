@@ -3379,7 +3379,7 @@ class Spreadsheet:
             spread_output.cells.append(row)  
         return spread_output
         
-    def latex(self,document=True,centering=True,caption=False,label=False):
+    def latex(self,document=True,centering=True,caption=False,label=False,width=None):
         
         to_str = lambda a: str(a) if a is not None else ''
 
@@ -3415,7 +3415,7 @@ class Spreadsheet:
         
         TABLE_TEMPLATE = """
 \\begin{{table}}{CENTERING}
-\\begin{{adjustbox}}{{width=\\textwidth}}
+\\begin{{adjustbox}}{{width={WIDTH}\\textwidth}}
 \\begin{{tabular}}{{{COLSPEC}}}
 {LINES}
 \\end{{tabular}}
@@ -3475,6 +3475,7 @@ class Spreadsheet:
             LINES=LINES,
             CAPTION=CAPTION,
             LABEL=LABEL,
+            WIDTH='%f'%width if width else ''
         )
         
         if document:
