@@ -3379,7 +3379,7 @@ class Spreadsheet:
             spread_output.cells.append(row)  
         return spread_output
         
-    def latex(self,centering=True,caption=False,label=False):
+    def latex(self,document=True,centering=True,caption=False,label=False):
         
         to_str = lambda a: str(a) if a is not None else ''
 
@@ -3392,7 +3392,8 @@ class Spreadsheet:
             buf = buf.replace('_','\_')
             return buf
         
-        TEMPLATE = """\\documentclass{{article}}
+        DOC_TEMPLATE = """
+\\documentclass{{article}}
 
 \\usepackage[table]{{xcolor}}
 \\usepackage{{booktabs}}
@@ -3407,22 +3408,24 @@ class Spreadsheet:
 
 \\begin{{document}}
 
-\\begin{{table}}
-{CENTERING}
+{TABLE}
+
+\\end{{document}}
+""".strip()
+        
+        TABLE_TEMPLATE = """
+\\begin{{table}}{CENTERING}
 \\begin{{adjustbox}}{{width=\\textwidth}}
 \\begin{{tabular}}{{{COLSPEC}}}
 {LINES}
 \\end{{tabular}}
-\\end{{adjustbox}}
-{CAPTION}
-{LABEL}
+\\end{{adjustbox}}{CAPTION}{LABEL}
 \\end{{table}}
+""".strip()
 
-\\end{{document}}
-"""
-        CENTERING = '\\centering' if centering else ''
-        CAPTION = '\\caption{%s}'%caption if type(caption) is str else ''
-        LABEL = '\\label{%s}'%label if type(label) is str else ''
+        CENTERING = '\n\\centering' if centering else ''
+        CAPTION = '\n\\caption{%s}'%caption if type(caption) is str else ''
+        LABEL = '\n\\label{%s}'%label if type(label) is str else ''
         
         COLSPEC = 'l'*self.ncols
         
@@ -3466,13 +3469,16 @@ class Spreadsheet:
             
         LINES = '\n'.join(ROWS)
             
-        LATEX = TEMPLATE.format(
+        LATEX = TABLE_TEMPLATE.format(
             CENTERING=CENTERING,
             COLSPEC=COLSPEC,
             LINES=LINES,
             CAPTION=CAPTION,
             LABEL=LABEL,
         )
+        
+        if document:
+            LATEX = DOC_TEMPLATE.format(TABLE=LATEX)
         
         return LATEX
         
