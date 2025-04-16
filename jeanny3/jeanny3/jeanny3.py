@@ -2154,6 +2154,243 @@ class Collection:
         
         return [layer]
 
+    def plotlayers_bar(
+                    self,
+                    categorykey,heightkey,
+                    widthkey=None,
+                    bottomkey=None,
+                    labelskey=None,
+                    stack=True,
+                    name=None,
+                    color=None,
+                    functions={},
+                    options={}
+                    ):
+        """
+        categorykey - list of keys of the category axes (can be a single string key)
+        heightkey - list of keys of the height axes (can be a single string key)
+        widthkey - list of keys of the widths axes (can be a single string key)
+        bottomkey - list of keys of the bottom level axes (can be a single string key)
+        stack - stack layers on each other (True), or use common bottom level (False)
+        
+        {color} - specs
+        Each spec is either None, or string, or list of strings
+        
+        functions - dictionary of auxiliary lambda functions.
+        
+        options - dictionary Layer of options.
+        
+        This method returns a list of layers of type Bar and datatype DataBar.
+        """
+        
+        NoneType = type(None)
+        
+        if type(heightkey) is str:
+            heightkey = [heightkey]
+
+        n_series = len(heightkey)
+        if type(categorykey) is str:
+            categorykey = [categorykey]*n_series
+            
+        assert len(categorykey)==len(heightkey)
+        
+        if type(widthkey) in {list,tuple}: 
+            assert len(widthkey)==len(categorykey)
+        elif type(widthkey) in {str,float,int,NoneType}:
+            widthkey = [widthkey]*n_series
+        else:
+            raise Exception('unsupported type for width on input:',type(widthkey))
+        
+        if type(bottomkey) in {list,tuple}: 
+            assert len(bottomkey)==len(categorykey)
+        elif type(bottomkey) in {str,float,int,NoneType}:
+            bottomkey = [bottomkey]*n_series
+        else:
+            raise Exception('unsupported type for bottom on input:',type(bottomkey))
+
+        if type(labelskey) in {list,tuple}: 
+            assert len(labelskey)==len(categorykey)
+        elif type(labelskey) in {str,float,int,NoneType}:
+            labelskey = [labelskey]*n_series
+        else:
+            raise Exception('unsupported type for labels on input:',type(labelskey))
+                    
+        columns = self.getcols(categorykey+heightkey,functions=functions,mode='greedy')
+        
+        category_columns = columns[:n_series]
+        height_columns = columns[n_series:2*n_series]
+        
+        assert len(category_columns)==len(height_columns)==n_series # debug
+        
+        width_columns = []
+        bottom_columns = []   
+        labels_columns = []     
+        for i in range(n_series):
+            
+            if type(widthkey[i]) is str:
+                width_column = self.getcol(widthkey[i],functions=functions,mode='greedy')
+            else:
+                assert type(widthkey[i]) in {float,int,NoneType}
+                if type(widthkey[i]) is not NoneType: assert widthkey[i]>0
+                width_column = widthkey[i]
+            width_columns.append(width_column)
+            
+            if type(bottomkey[i]) is str:
+                bottom_column = self.getcol(bottomkey[i],functions=functions,mode='greedy')
+            else:
+                assert type(bottomkey[i]) in {float,int,NoneType}
+                bottom_column = bottomkey[i]
+            bottom_columns.append(bottom_column)
+
+            if type(labelskey[i]) is str:
+                labels_column = self.getcol(labelskey[i],functions=functions,mode='greedy')
+            else:
+                assert type(labelskey[i]) in {float,int,NoneType}
+                labels_column = labelskey[i]
+            labels_columns.append(labels_column)
+                            
+        dtype = DataBar
+        ltype = Bar
+        lopts = BarOptions(**options)
+                        
+        def process(spec):        
+            if spec is None or type(spec) in {str,int,float}:
+                spec = [spec]*n_series
+            else:
+                spec = cycle(spec)
+            return spec
+        
+        color = process(color)
+        name = process(name)
+        
+        layers = []
+        
+        bottom_dict = {}
+        
+        for ctcol,hgcol,wdcol,btcol,lbcol,nm,clr,hk in zip(
+                category_columns,
+                height_columns,
+                width_columns,
+                bottom_columns,
+                labels_columns,
+                name,
+                color,
+                heightkey
+        ):
+            
+            cts = []; hgs = []; wds = []; bts = []; lbs = []
+            for i in range(len(ctcol)):
+                ct = ctcol[i]
+                hg = hgcol[i]                
+
+                if ct is None: continue
+                if hg is None: continue
+
+                cts.append(ct)
+                hgs.append(hg)            
+                
+                if type(wdcol) in {list,tuple}:
+                    wd = wdcol[i]
+                    if wd is None: wd=1
+                    wds.append(wd)
+                else:
+                    wds = wdcol
+                
+                if type(btcol) in {list,tuple}:
+                    bt = btcol[i]
+                    if bt is None: bt=0
+                    bts.append(bt)
+                else:
+                    bts = btcol if btcol is not None else 0
+
+                if type(lbcol) in {list,tuple}:
+                    lb = lbcol[i]
+                    lbs.append(lb)
+                else:
+                    lbs = lbcol
+
+            if not cts or not hgs: continue            
+                    
+            if type(bts) not in {list,tuple}:
+                bts = [bts]*len(cts)
+                                        
+            if stack:
+                bts_ = []
+                for ct,hg,bt in zip(cts,hgs,bts):
+                    if ct in bottom_dict:                        
+                        bt = bottom_dict[ct]
+                        bottom_dict[ct] += hg
+                    else:
+                        bottom_dict[ct] = bt+hg
+                    bts_.append(bt)
+                bts = bts_
+                        
+            data = dtype(cts,hgs,wds,bts,lbs)
+            
+            lopts_ = lopts.copy()
+            if clr is not None: lopts_['face_color'] = clr
+            if lbs is None: lopts_['labels_on'] = False
+                                
+            if not nm: nm = hk
+            
+            layer = ltype(data,nm,lopts_)
+            layers.append(layer)
+        
+        return layers
+
+    def plot_bar(
+                self,
+                categorykey,heightkey,
+                widthkey=None,
+                bottomkey=None, 
+                labelskey=None,  
+                stack=True,             
+                xlabel=None,
+                ylabel=None,
+                name=None,
+                title=None,
+                color=None,
+                logscale_x=False,
+                logscale_y=False,
+                xlim=None,
+                ylim=None,
+                size=False,
+                functions={},
+                axes_options={},
+                layer_options={},
+                ):
+        """
+        Plot of lineseries with errorbars.
+        """
+        
+        # Create Axes options.
+        aopts = AxesOptions(**axes_options)
+        if logscale_x: aopts['x_axis_logscale_on'] = True
+        if logscale_y: aopts['y_axis_logscale_on'] = True
+        if title: aopts['title'] = title
+        if xlabel: aopts['x_axis_label'] = xlabel
+        if ylabel: aopts['y_axis_label'] = ylabel
+        if xlim: aopts['x_axis_limits'] = xlim
+        if ylim: aopts['y_axis_limits'] = ylim
+            
+        # Create plot options.
+        popts = {}
+        if size: popts['size'] = size
+                
+        # Create layers.
+        layers = self.plotlayers_bar(
+            categorykey,heightkey,
+            widthkey,bottomkey,labelskey,
+            stack=stack,
+            name=name,
+            color=color,
+            functions=functions,
+            options=layer_options,
+        )
+        
+        ax = Axes(layers,options=aopts)
+        ax.plot(size=size)
+        
     # =======================================================
     # ============= Other unfinished stuff... ===============
     # =======================================================
@@ -3733,6 +3970,20 @@ class DataFillBetween(PlotData):
         self.xmax = xmax
         self.ymin = ymin
         self.ymax = ymax
+
+class DataBar(PlotData):
+    """
+    Data for bar plots.
+    """
+    
+    __args__ = ['category','height','width','bottom','labels']
+    
+    def __init__(self,category,height,width=None,bottom=None,labels=None):                            
+        self.category = category
+        self.height = height
+        self.width = width
+        self.bottom = bottom
+        self.labels = labels
         
 #######################################
 # ABSTRACTIONS FOR THE OPTIONS OBJECTS
@@ -3848,7 +4099,24 @@ class FillBetweenOptions(Options):
         'color': None,
         'alpha': None,
     }
+
+class BarOptions(Options):
+    """
+    Bar options
+    """
     
+    __defaults__ = {
+        'alpha': None,
+        'face_color': None,
+        'line_color': None,
+        'line_width': None,
+        'labels_on': False,
+        'labels_type': 'center', # None, 'center','edge'
+        'labels_font_weight': None, # None, 'bold', ...
+        'labels_font_size': None,
+        'labels_font_color': None,
+    }
+
 class AxesOptions(Options):
     """
     Axes options
@@ -4264,7 +4532,65 @@ class Text(Layer):
         #mpl_ax.text(x,y,text,**kwargs)
         for x_,y_,text_ in zip(x,y,text):
             mpl_ax.text(x_,y_,text_,**kwargs)
+
+class Bar(Layer):
+    """
+    Bar plot.
+    """
+    
+    __options_class__ = BarOptions
+    
+    def assert_data(self,data):
+        assert isinstance(data,DataBar)
         
+    def plot(self,mpl_ax):
+        
+        #p = ax.bar(category, height, width, label=boolean, bottom=bottom)
+        
+        DEBUG = SETTINGS['DEBUG']
+        
+        category = self.data.category
+        height = self.data.height
+        width = self.data.width
+        bottom = self.data.bottom
+        labels = self.data.labels
+
+        opts = self.options
+        
+        MAP = {
+            'alpha': 'alpha',
+            'face_color': 'color',
+            'line_color': 'edgecolor',
+            'line_width': 'linewidth',            
+        }
+        
+        args = {MAP[key]:opts[key] \
+                for key in MAP if opts[key] is not None}
+        
+        if DEBUG: print('Bar.plot:',args)
+        
+        wbargs = {}
+        if width: wbargs['width'] = width
+        if bottom: wbargs['bottom'] = bottom
+                
+        p = mpl_ax.bar(category,height,**wbargs,**args)
+        
+        if opts['labels_on']:
+            
+            if not labels: labels = height
+            
+            MAP = {
+                'labels_type': 'label_type', # None, 'center'
+                'labels_font_weight': 'fontweight',
+                'labels_font_size': 'fontsize',
+                'labels_font_color': 'color',
+            }
+            
+            label_args = {MAP[key]:opts[key] \
+                for key in MAP if opts[key] is not None}
+                        
+            mpl_ax.bar_label(p,labels=labels,**label_args)
+
 ###################################
 # ABSTRACTIONS FOR THE AXES OBJECTS
 ###################################
