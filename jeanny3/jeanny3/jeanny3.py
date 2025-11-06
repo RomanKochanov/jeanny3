@@ -9,13 +9,18 @@ import copy
 import shutil
 import string
 import hashlib
+import traceback
+
 import uuid as uuidmod
 import itertools as it
 import functools as ft
 
-from itertools import cycle
+from time import time, sleep
 from datetime import date, datetime
+from datetime import datetime
 from warnings import warn,simplefilter
+from itertools import cycle
+from multiprocessing import Pool, Lock
 
 # increase the csv field size limit
 #csv.field_size_limit(sys.maxsize) # throws error on some versions of Python
@@ -2484,6 +2489,39 @@ class Collection:
         
         ax = Axes(layers,options=aopts)
         ax.plot(size=size)
+
+    # =======================================================
+    # ============= PyCroC... ===============================
+    # =======================================================
+    
+    def submit_(self,func,nprocs=1,chunksize=1): 
+        """
+        Submit PyCroC job. 
+        Returns a generator or job results.
+        """
+        assert func.__name__!='<lambda>','lambda functions are not supported so far'
+        scheduler = JobScheduler(nprocs=nprocs,map_chunksize=chunksize)
+        results_gen = scheduler.map(func,self)
+        return results_gen
+        
+    def submit(self,func,nprocs=1,chunksize=1,join_item=False):
+        """
+        Submit PyCroC job (wrapper for submit_). 
+        Returns a collection when all jobs are done.
+        IDs of the returned collection are the same as IDs of this collection.
+        If join_item=True, then the original items are joined to job results.
+        """
+        col = Collection()
+        results_gen = self.submit_(func,nprocs=nprocs,chunksize=chunksize)
+        for ID,item in results_gen:
+            col.__dicthash__[ID] = item
+            if join_item:
+                col.__dicthash__[ID]['__item__'] = self.getitem(ID)
+        col.order = (
+            '__started__ __finished__ __elapsed__ __output__ '
+            '__rambytes__ __error_message__ __error_traceback__ '
+        ).split()
+        return col    
         
     # =======================================================
     # ============= Other unfinished stuff... ===============
@@ -5134,4 +5172,215 @@ class Figure:
         plt.close() # don't display plot, just close
 
 
+################################################################################
+### BUILD-IN PYCROC - A LIBRARY FOR LAUNCH AND MANAGE JOBS USING COLLECTIONS ###
+################################################################################
 
+class JobError:
+    
+    def __init__(self,message,traceback):
+        self.__message__ = message
+        self.__traceback__ = traceback
+    
+    def __repr__(self):
+        return 'Error'
+
+class JobParameters:
+    
+    def __init__(self,item):
+        self.__item__ = item
+        
+    @property
+    def item(self):
+        return self.__item__  
+        
+    def __getitem__(self,key):
+        return self.__item__[key]
+        
+    def __repr__(self):
+        return 'JobParameters(%d)'%len(self.item)
+
+class JobResult:
+    
+    def __init__(self,jobpars,finished=None,output=None,error=None):
+        self.jobpars = jobpars
+        self.started = datetime.today()
+        self.finished = finished
+        self.output = output
+        self.error = error
+        self.ram = None
+        
+    def to_dict(self):
+
+        jobpars = self.jobpars
+        
+        #logitem = jobpars.__item__.copy()
+        logitem = {}
+        
+        logitem['__started__'] = self.started.isoformat()
+                
+        if not self.error:
+            logitem['__finished__'] = self.finished.isoformat()
+            logitem['__elapsed__'] = self.elapsed
+            logitem['__output__'] = self.output
+        else:
+            #logitem['error'] = self.error
+            logitem['__error_message__'] = self.error.__message__
+            logitem['__error_traceback__'] = self.error.__traceback__
+            
+        logitem['__rambytes__'] = self.ram
+        #logitem['__item__'] = jobpars.__item__
+                        
+        return logitem
+                
+    @property
+    def elapsed(self):
+        if self.finished:
+            return (self.finished-self.started).total_seconds()
+        else:
+            return None
+        
+    def __repr__(self):
+        return 'JobResult(output=%s,error=%s)'%(self.output,self.error)
+
+def process_memory():
+    import psutil
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss
+    
+class JobWrapper:
+            
+    def __init__(self,job):
+        self.__job__ = job
+        
+    def __call__(self,pair):
+        
+        ID,item= pair
+        
+        job = self.__job__
+        #scheduler = job.__scheduler__
+        
+        rootpath = os.getcwd()
+                
+        jobpars = JobParameters(item)
+        
+        result = JobResult(jobpars=jobpars)
+        
+        mem_before = process_memory()
+        
+        try: # try to run job in its working directory
+            t = time()
+            output = job(item)
+            result.finished = datetime.now()
+            #time_elapsed = time()-t
+            time_elapsed = result.elapsed            
+            result.output = output            
+        except Exception as e:
+            result.error = JobError(
+                message=str(e),
+                traceback=traceback.format_exc()
+            )
+        finally: # do some logging and save results
+            os.chdir(rootpath)
+            mem_after = process_memory()
+            result.ram = mem_after-mem_before
+            json = result.to_dict()
+            return ID,json
+
+class JobWrapperMeta(type): # not used so far
+                        
+    def __new__(mcs, name, bases, dct, **kwargs):
+        
+        #def __init__(self,job):
+        #    self.__job__ = job
+            
+        def __call__(self,pair):
+            
+            ID,item = pair
+            
+            job = self.__job__
+            #scheduler = job.__scheduler__
+            
+            rootpath = os.getcwd()
+                    
+            jobpars = JobParameters(item)
+            
+            result = JobResult(jobpars=jobpars)
+            
+            mem_before = process_memory()
+            
+            try: # try to run job in its working directory
+                t = time()
+                output = job(item)
+                result.finished = datetime.now()
+                #time_elapsed = time()-t
+                time_elapsed = result.elapsed            
+                result.output = output            
+            except Exception as e:
+                result.error = JobError(
+                    message=str(e),
+                    traceback=traceback.format_exc()
+                )
+            finally: # do some logging and save results
+                os.chdir(rootpath)
+                mem_after = process_memory()
+                result.ram = mem_after-mem_before
+                json = result.to_dict()
+                return ID,json
+
+        # add static methods
+        #dct['__init__'] = __init__
+        dct['__call__'] = __call__
+
+        # add dynamic "job" method
+        job = kwargs.pop('job') 
+        dct['__job__'] = job
+
+        # Pass the remaining arguments (none in this case, but good practice)
+        # to the parent type.__new__, *excluding* the ones type() doesn't recognize
+        return super().__new__(mcs, name, bases, dct, **kwargs)
+            
+class JobScheduler:
+        
+    def __init__(self,nprocs=1,map_chunksize=1):
+        self.__nprocs__ = nprocs
+        self.__map_chunksize__ = map_chunksize
+        
+    def map(self,job,col):
+        
+        #job.__scheduler__ = self
+                   
+        # normal instancing (not picklable if "job" is a lambda function)
+        wrap = JobWrapper(job=job)
+        
+        # instancing through a metaclass (should be picklable)
+        #class JobWrapper_(metaclass=WrapperMeta,job=job): pass
+        #wrap = JobWrapper_()
+        
+        #with Pool(processes=self.__nprocs__) as pool:
+        #    return list(pool.imap_unordered(wrap,col))
+            #return pool.imap_unordered(wrap,col)
+            
+        pool = Pool(processes=self.__nprocs__)
+        
+        dicthash = col.__dicthash__
+        pairs = [(ID,dicthash[ID]) for ID in dicthash]
+        
+        return pool.imap_unordered(wrap,pairs,chunksize=self.__map_chunksize__)
+        
+class Job:
+
+    def __init__(self,name,*args,**kwargs):
+       self.__scheduler__ = None
+       self.__name__ = name
+       self.__initialize__(*args,**kwargs)
+
+    def __call__(self,item):
+        return self.__func__(item)
+                       
+    def __initialize__(self,*args,**kwargs):
+        pass
+        
+    def __func__(self):
+        raise NotImplementedError       
