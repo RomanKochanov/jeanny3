@@ -1218,7 +1218,7 @@ class Collection:
             raise Exception('unknown type of key:',type(key))
         
         if colnames is None:
-            colnames_empty = True; order_set = set()
+            colnames_empty = True; order_set = dict()
         else:
             colnames_empty = False        
         
@@ -1241,10 +1241,10 @@ class Collection:
                 if not strict and colname not in external_item:
                     continue
                 item[colname_] = external_item[colname]
-                if colnames_empty: order_set.add(colname_)
+                if colnames_empty: order_set[colname_] = None
         
         if colnames_empty: 
-            self.order += order_set
+            self.order += list(order_set)
         else:
             self.order += [prefix+colname for colname in colnames]
         
