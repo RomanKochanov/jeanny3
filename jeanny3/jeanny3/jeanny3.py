@@ -1207,18 +1207,28 @@ class Collection:
         Key can be either lambda function on item, or a field name
         If strict==False, then ignore if colname is not in col item.
         """
-        if type(key)==str:
+        
+        if type(key)==str:            
             key_ = lambda v: v[key]
         elif type(key) in {tuple,list}:
             key_ = lambda v: tuple([v[k] for k in key])
-        else:
+        elif type(key) is type(lambda:None):
             key_ = key # expecting lambda func, returning col's index values
+        else:
+            raise Exception('unknown type of key:',type(key))
+        
         if colnames is None:
             colnames_empty = True; order_set = set()
         else:
             colnames_empty = False        
-        for item in self.getitems():
-            k_ = key_(item)
+        
+        #for item in self.getitems():
+        for ID in self.__dicthash__:
+            item = self.__dicthash__[ID]
+            if key=='__ID__':
+                k_ = ID
+            else:
+                k_ = key_(item)
             if k_ not in col.__dicthash__:
                 continue # skip to next iteration if key is not found in external col
             external_item = col.__dicthash__[k_]            
@@ -1232,6 +1242,7 @@ class Collection:
                     continue
                 item[colname_] = external_item[colname]
                 if colnames_empty: order_set.add(colname_)
+        
         if colnames_empty: 
             self.order += order_set
         else:
