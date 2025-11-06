@@ -738,7 +738,12 @@ class Collection:
             rows = [process(row) for row in rows]
         return rows
         
-    def splitcol(self,colname,newcols=None):
+    def splitcol(self,colname,newcols=None): 
+        """
+        Split column inside the collection.
+        Column must be a list or tuple.
+        Parameter newcols is a list containing names for new columns.
+        """
         if newcols is None:
             vals = self.getitem(next(iter(self.__dicthash__.keys())))[colname]
             newcols = [colname+'_%d'%i for i,_ in enumerate(vals)]
@@ -750,6 +755,39 @@ class Collection:
             for newcol,val in zip(newcols,vals):
                 item[newcol] = val
             del item[colname]
+            
+    def splitcol_(self,colname,newcols=None):
+        """
+        Split column and produce a new collection.
+        Column must be a dictionary.
+        Parameter newcols is a lambda function defining a naming rule:
+           lambda key_in -> key_out
+        """
+        if newcols is None:
+            newcols = lambda key: key
+        # loop through collection
+        colnames_extra = dict()
+        col = Collection()
+        for ID in self.__dicthash__:            
+            # create a new item without target column
+            item = self.__dicthash__[ID]
+            item_ = {k:item[k] for k in item if k!=colname}
+            col.__dicthash__[ID] = item_ # item needs to be added
+            # process target column
+            dct = item[colname]
+            subitem = {}
+            for key in dct:
+                if key not in colnames_extra:
+                    colnames_extra[key] = None
+                subitem[newcols(key)] = dct[key]
+            #subitem = {newcols(key):dct[key] for key in dct}
+            item_.update(subitem)
+        if self.order is None:
+            col.order = []
+        else:
+            col.order = [k for k in self.order if k!=colname]
+        col.order += list(colnames_extra)
+        return col
                        
     def deletecol(self,colname):
         """
@@ -5043,5 +5081,6 @@ class Figure:
         plt.savefig(fname=fname,dpi=dpi,pad_inches=pad_inches,
             bbox_inches=bbox_inches,backend=backend,facecolor=facecolor,transparent=transparent)
         plt.close() # don't display plot, just close
+
 
 
