@@ -830,9 +830,14 @@ class Collection:
             if floatfmt is None: floatfmt = 'f'
                 
         if colnames==None:
-            #colnames = list(self.keys().keys()) # this will prevent byg in Python3 since {}.keys() return dict_keys object instead of a list
-            allkeys = list(self.keys().keys())
-            colnames = self.order + list(set(allkeys)-set(self.order))
+            #colnames = list(self.keys().keys()) # this will prevent bug in Python3 since {}.keys() return dict_keys object instead of a list
+            allkeys = list(self.keys().keys()) # BOTTLENECK
+            #colnames = self.order + list(set(allkeys)-set(self.order))
+            if self.order:
+                order_set = set(self.order)
+                colnames = list(self.order) + [k for k in allkeys if k not in order_set]
+            else:
+                colnames = allkeys
         elif type(colnames) is str:
             colnames = colnames.split()
 
@@ -5038,3 +5043,5 @@ class Figure:
         plt.savefig(fname=fname,dpi=dpi,pad_inches=pad_inches,
             bbox_inches=bbox_inches,backend=backend,facecolor=facecolor,transparent=transparent)
         plt.close() # don't display plot, just close
+
+
