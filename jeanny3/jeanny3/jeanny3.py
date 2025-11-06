@@ -765,6 +765,7 @@ class Collection:
         """
         if newcols is None:
             newcols = lambda key: key
+        
         # loop through collection
         colnames_extra = dict()
         col = Collection()
@@ -782,11 +783,50 @@ class Collection:
                 subitem[newcols(key)] = dct[key]
             #subitem = {newcols(key):dct[key] for key in dct}
             item_.update(subitem)
+            
+        # make proper order
         if self.order is None:
             col.order = []
         else:
             col.order = [k for k in self.order if k!=colname]
         col.order += list(colnames_extra)
+        
+        return col
+        
+    def collapsecol(self,colnames,newcol,after=None):
+        """
+        Collapse columns "colnames" into one column "newcol" 
+        which is a dictionary with keys as "colnames".
+        Plase new column after a column with specified name ("after").
+        Returns new collection.
+        """
+        
+        # loop through collection
+        colname_set = set(colnames)
+        col = Collection()
+        for ID in self.__dicthash__:            
+            # create a new item without target column
+            item = self.__dicthash__[ID]
+            item_ = {k:item[k] for k in item if k not in colname_set}
+            col.__dicthash__[ID] = item_ # item needs to be added
+            # add new colapsed column
+            dct = {key:item[key] for key in colnames}
+            item_[newcol] = dct
+        
+        # make proper order
+        if self.order is None:
+            col.order = []
+        else:
+            col.order = [k for k in self.order if k not in colname_set]
+        if after==None:
+            ind = 0
+        else:
+            try:
+                ind = col.order.index(after)+1
+            except ValueError:
+                ind = len(col.order)
+        col.order.insert(ind,newcol)
+        
         return col
                        
     def deletecol(self,colname):
