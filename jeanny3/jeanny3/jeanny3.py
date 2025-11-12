@@ -11,6 +11,7 @@ import string
 import hashlib
 import traceback
 
+import types
 import uuid as uuidmod
 import itertools as it
 import functools as ft
@@ -1808,7 +1809,15 @@ class Collection:
     # =======================================================
         
     def __eq__(self,other):
-        return self.types==other.types and self.__dicthash__==other.__dicthash__
+        #return self.types==other.types and self.__dicthash__==other.__dicthash__ # old code
+        
+        self_types = self.types
+        if self_types is None: self_types = self.get_types()
+
+        other_types = other.types
+        if other_types is None: other_types = other.get_types()
+
+        return self_types==other_types and self.__dicthash__==other.__dicthash__
         
     def __ne__(self,other):
         return not self==other
@@ -3597,10 +3606,221 @@ class ClickhouseConnection(StorageConnection):
     def command(self,sql):
         print( self.__client__.command(sql) )
 
-class HDF5Connection(StorageConnection):
-    pass
-
 class SQLiteConnection(StorageConnection):
+
+    def connect(self,
+        database,
+        timeout=5.0,
+        isolation_level=None):
+        """
+        Connect to SQLite database.
+        
+        Parameters:
+        -----------
+        database : str
+            Path to SQLite database file (or ':memory:' for in-memory database)
+        timeout : float, optional
+            How long to wait for locks to be released (default: 5.0)
+        isolation_level : str, optional
+            Isolation level for transactions (default: None)
+        """
+        import sqlite3
+        
+        self.__connection__ = sqlite3.connect(
+            database=database,
+            timeout=timeout,
+            isolation_level=isolation_level
+        )
+        self.__connection__.row_factory = sqlite3.Row  # Enable column access by name
+        
+    def close(self):
+        self.__connection__.close()
+        
+    def __post_init__(self,*args,**kwargs):
+        
+        self.__MAP_FROM_SQLITE__ = { # left -> SQLite type, right -> Python type
+            
+            'INTEGER': int,
+            'INT': int,
+            'TINYINT': int,
+            'SMALLINT': int,
+            'MEDIUMINT': int,
+            'BIGINT': int,
+            'UNSIGNED BIG INT': int,
+            'INT2': int,
+            'INT8': int,
+            
+            'REAL': float,
+            'DOUBLE': float,
+            'DOUBLE PRECISION': float,
+            'FLOAT': float,
+            
+            'TEXT': str,
+            'CHARACTER': str,
+            'VARCHAR': str,
+            'VARYING CHARACTER': str,
+            'NCHAR': str,
+            'NATIVE CHARACTER': str,
+            'NVARCHAR': str,
+            'CLOB': str,
+            
+            'BLOB': bytes,
+            
+            'NUMERIC': float,  # SQLite NUMERIC can be int or float, defaulting to float
+            'DECIMAL': float,
+            'BOOLEAN': int,  # SQLite BOOLEAN is stored as INTEGER
+            'DATE': str,  # SQLite DATE is stored as TEXT
+            'DATETIME': str,  # SQLite DATETIME is stored as TEXT
+        }
+        
+        self.__MAP_TO_SQLITE__ = { # left -> Python type, right -> SQLite type
+            
+            int: 'INTEGER',
+            float: 'REAL',
+            str: 'TEXT',
+            bytes: 'BLOB',
+        }
+                
+    def get_type_header(self,sql): # interface
+        
+        # Get connection object.
+        conn = self.__connection__
+        
+        # Remove LIMIT clause if present to get schema
+        sql_nolimit = re.sub(r'limit\s+\d+;?', '', sql, flags=re.IGNORECASE)
+        
+        # Execute query with LIMIT 1 to get schema without fetching all data
+        cursor = conn.execute(sql_nolimit + ' LIMIT 1')
+        
+        # Get column names
+        colnames = [description[0] for description in cursor.description] if cursor.description else []
+        
+        # Get column types from cursor description
+        # SQLite cursor.description provides (name, type_code, display_size, internal_size, precision, scale, null_ok)
+        # We need to query the actual table schema to get types
+        # For now, we'll try to infer from the query result or use a fallback
+        
+        # Try to extract table name from SQL to query its schema
+        table_match = re.search(r'from\s+(\w+)', sql_nolimit, re.IGNORECASE)
+        if table_match:
+            tablename = table_match.group(1)
+            # Query table schema
+            cursor_schema = conn.execute(f"PRAGMA table_info({tablename})")
+            schema_info = {row[1]: row[2] for row in cursor_schema.fetchall()}  # {column_name: type}
+            
+            # Map SQLite types to Python types
+            coltypes = [
+                self.__MAP_FROM_SQLITE__.get(schema_info.get(colname, 'TEXT').upper(), str)
+                for colname in colnames
+            ]
+        else:
+            # Fallback: if we can't determine table, default to TEXT for all columns
+            coltypes = [str] * len(colnames)
+        
+        # Get and return the type header.
+        type_header = {key:typ for key,typ in zip(colnames,coltypes)}
+        
+        return type_header
+    
+    def table_exists(self,tablename): # interface
+        conn = self.__connection__
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (tablename,)
+        )
+        result = cursor.fetchone()
+        return result is not None
+        
+    def create_table(self,tablename,type_header): # interface
+        
+        # Get connection object.
+        conn = self.__connection__
+        
+        # Get Python->SQLite type mapper.
+        MAP = self.__MAP_TO_SQLITE__
+        
+        # Get names and types of columns.
+        colnames = list(type_header)
+        coltypes = [type_header[key] for key in colnames]
+        
+        # Get SQLite column types.
+        coltypes_ = [MAP.get(typ, 'TEXT') for typ in coltypes]
+        
+        # Quote identifiers to handle special characters
+        def quote_identifier(name):
+            return f'"{name}"' if not name.startswith('"') else name
+        
+        quoted_tablename = quote_identifier(tablename)
+        quoted_colspecs = ', '.join([f'{quote_identifier(key)} {typ}' for key,typ in zip(colnames,coltypes_)])
+        
+        # Make a template for create_table command
+        template = 'CREATE TABLE {TABLENAME} ({COLSPEC})'
+        
+        # Create a command and run it using the connector.
+        command = template.format(
+            TABLENAME=quoted_tablename,
+            COLSPEC=quoted_colspecs,
+        )
+        
+        conn.execute(command)
+        conn.commit()
+
+    def get_table_exists_exception(self):
+        import sqlite3
+        return sqlite3.OperationalError
+
+    def insert_(self,tablename,datamatrix,keynames): # interface
+        conn = self.__connection__
+        
+        # Quote identifiers to handle special characters
+        def quote_identifier(name):
+            return f'"{name}"' if not name.startswith('"') else name
+        
+        # Create placeholders for the INSERT statement
+        placeholders = ','.join(['?' for _ in keynames])
+        quoted_tablename = quote_identifier(tablename)
+        quoted_colnames = ','.join([quote_identifier(name) for name in keynames])
+        
+        # Build INSERT statement
+        sql = f'INSERT INTO {quoted_tablename} ({quoted_colnames}) VALUES ({placeholders})'
+        
+        # Execute all inserts within a single transaction
+        # Explicitly begin transaction to ensure all operations happen in one commit
+        conn.execute('BEGIN')
+        try:
+            conn.executemany(sql, datamatrix)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        
+    def select_(self,sql): # interface
+        
+        conn = self.__connection__
+        cursor = conn.execute(sql)
+        
+        # Generate sequence of rows in a loop.
+        while True:
+            row = cursor.fetchone()
+            if row is None:
+                break
+            # Convert Row object to tuple
+            yield tuple(row)
+                
+    def command(self,sql):
+        conn = self.__connection__
+        cursor = conn.execute(sql)
+        conn.commit()
+        
+        # Fetch and print results if it's a SELECT query
+        if sql.strip().upper().startswith('SELECT'):
+            results = cursor.fetchall()
+            for row in results:
+                print(row)
+        else:
+            print(f"Command executed successfully. Rows affected: {cursor.rowcount}")
+
+class HDF5Connection(StorageConnection):
     pass
 
 ######################################################################
