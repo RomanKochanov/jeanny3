@@ -1925,7 +1925,7 @@ class Collection:
         
         return layers
     
-    def plot(
+    def axes(
                 self,
                 xkey,ykey,
                 xlabel=None,
@@ -1976,6 +1976,12 @@ class Collection:
         )
         
         ax = Axes(layers,options=aopts)
+        return ax        
+        
+    def plot(self,*args,**kwargs):
+        """ proxy to sef.axes """
+        size = kwargs.get('size',False)
+        ax = self.axes(*args,**kwargs)
         ax.plot(size=size)
         
     def plotlayers_errorbars(
@@ -2103,7 +2109,7 @@ class Collection:
         
         return layers
 
-    def plot_errorbars(
+    def axes_errorbars(
                 self,
                 xkey,ykey,yerrkey,
                 xerrkey=None,                
@@ -2156,6 +2162,12 @@ class Collection:
         )
         
         ax = Axes(layers,options=aopts)
+        return ax
+
+    def plot_errorbars(self,*args,**kwargs):
+        """ proxy to sef.axes_errorbars """
+        size = kwargs.get('size',False)
+        ax = self.axes_errorbars(*args,**kwargs)        
         ax.plot(size=size)
         
     def plotlayers_text(
@@ -2446,7 +2458,7 @@ class Collection:
         
         return layers
 
-    def plot_bar(
+    def axes_bar(
                 self,
                 categorykey,heightkey,
                 widthkey=None,
@@ -2497,6 +2509,12 @@ class Collection:
         )
         
         ax = Axes(layers,options=aopts)
+        return ax
+
+    def plot_bar(self,*args,**kwargs):
+        """ proxy to sef.axes_bar """
+        size = kwargs.get('size',False)
+        ax = self.axes_bar(*args,**kwargs)
         ax.plot(size=size)
 
     # =======================================================
