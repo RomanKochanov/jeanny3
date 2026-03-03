@@ -1081,7 +1081,7 @@ class Collection:
             del self.__dicthash__[ID]
         
     def group(self,expr): # TODO: add process_exp
-        # special case: grouping by __ID__
+        # special case: grouping by __ID__ for stacking collections
         if expr=='__ID__':
             return {k:[k] for k in self.__dicthash__}
         # normal grouping by expression
@@ -1791,8 +1791,27 @@ class Collection:
     # =======================================================
     # ============= Typing... ===============================
     # =======================================================
+        
+    #def get_types(self,nitems=None): # OLD VERSION NOT CONSIDERING MIXED TYPE
+    #    types = {}
+    #    dicthash = self.__dicthash__
+    #    if nitems is None:
+    #        nitems = len(dicthash)
+    #    for i,c in zip(range(nitems),dicthash):
+    #        item = dicthash[c]
+    #        tt = {key:type(item[key]) for key in item}
+    #        for key in tt:
+    #            ty = tt[key]
+    #            if key not in types:
+    #                types[key] = ty
+    #            elif types[key] is None:
+    #                types[key] = ty
+    #    return types
     
-    def get_types(self,nitems=None):
+    class MIXED:
+        pass
+
+    def get_types(self,nitems=None): # NEW VERSION INCLUDING MIXED TYPE
         types = {}
         dicthash = self.__dicthash__
         if nitems is None:
@@ -1803,9 +1822,16 @@ class Collection:
             for key in tt:
                 ty = tt[key]
                 if key not in types:
-                    types[key] = ty
-                elif types[key] is None:
-                    types[key] = ty
+                    types[key] = {ty}
+                #elif types[key] is None:
+                #    types[key] = ty
+                else:
+                    types[key].add(ty)
+        for key in types:
+            if len(types[key])==1:
+                types[key] = list(types[key])[0]
+            else:
+                types[key] = MIXED
         return types
 
     # =======================================================
@@ -3267,7 +3293,142 @@ def join_(jkey,jidx,*cols):
         col_join.update(item)
     
     return col_join
+
+##########################################
+# ADVANCED COMPARISON OF TWO COLLECTIONS #
+##########################################
+
+def compare(col1,col2,join_by=None,compfuncs=None):
+    """
+    ARGUMENTS:
+
+        col1,col2 - collections to compare
+
+        join_by - parameter defining join mode:
+            join_by is a list: using "indexed" join; axcepting output of join_index_
+            join_by is a string/lambda: using the key join
+            join_by is None: using "plain" join
+           
+        compfuncs - custom comparison aggregate functions dictionary of the format:
+            compfuncs = {name:{'keys':[...], 'func': ...}}, where
+                name - name of the aggregate function
+                keys - either single key name, or list/tuple of keynames, 
+                       to which this function will be applied
+                       
+            the format of the comparison function is as follows:
+                compfunc = lambda vals1,vals2: ...  where
+                    values1,values2 - column values
+        
+            N.B.: the default aggregate functions for all types are "NTOT" and "NEQ", where
+                NTOT - total number of comparable pairs of items for this parameter
+                NEQ - number of equal elements in the intersection 
+                
+            N.B.2: all aggregate comparison functions are applicable to the intersection 
+                of the sets of items of the two collections; intersections are taken using the 
+                join rule defined by join_by parameter; 
+            
+            N.B.3: ALL VALUES IN THE COLLECTION MUST BE COMPARABLE THROUGH THE EQUALITY OPERATION!!!
+        
+            N.B.4: there are also additional default comparison function for the numeric columns,
+                which is maximal absolute difference ("MADIFF")
     
+    HOW TO JOIN TWO COLLECTIONS: 
+        grpi1 = col1.group('a')
+        grpi2 = col2.group('a')
+        jidx = join_index_(grpi1,grpi2,inner=True) # join index to use in comparison
+
+    USAGE EXAMPLE:
+        compare(col1,col2,join_by=jidx) # using join index
+        compare(col1,col2,join_by='a') # using join by column "a", same as previous option
+        compare(col1,col2) # using default "plain" join, i.e. by __ID__
+    """
+    
+    # change this later to use the JoinIndex type instead of type(None)
+    assert type(join_by) in {list,str,type(None),type(lambda: None)}
+    
+    if compfuncs is None: compfuncs = dict()
+    
+    # prepare key for plain join
+    if join_by is None:
+        join_by = '__ID__'
+        
+    # get the join index if it is not supplied
+    if type(join_by) in {str,type(lambda: None)}:
+        grpi1 = col1.group(join_by)
+        grpi2 = col2.group(join_by)
+        join_by = join_index_(grpi1,grpi2,inner=True)
+    
+    # define incremental aggregate comparison functions (NEQ,MADIFF)
+    MADIFF = lambda vals1,vals2: max([abs(val1-val2) for val1,val2 in zip(vals1,vals2)])
+    
+    # get type headers for the collections
+    typehead1 = col1.types if col1.types is not None else col1.get_types()
+    typehead2 = col2.types if col2.types is not None else col2.get_types()
+    
+    # create a lookup hash for the custom aggregate functions
+    keyfuncs = {}
+    for funcname in compfuncs:
+        for key in compfuncs[funcname]['keys']:
+            if key in keyfuncs:
+                keyfuncs[key].append(funcname)
+            else:
+                keyfuncs[key] = [funcname]
+    
+    # create a stat table and process key-by-key
+    stat = Collection()
+    #keys = set(typehead1).union(typehead2) # order of keys is chaotic
+    keys = [k for k in typehead1]; keys += [k for k in typehead2 if k not in typehead1] # preserving order of keys
+    for key in keys:
+        # go through join index
+        n_first_and_second_tot = 0
+        n_first_and_second_eq = 0
+        n_first_minus_second = 0
+        n_second_minus_first = 0
+        vals1 = []
+        vals2 = []
+        for _,ids in join_by:
+            id1,id2 = ids
+            v1 = col1.getitem(id1)
+            v2 = col2.getitem(id2)
+            if key in v1 and key in v2:
+                val1 = v1[key]
+                val2 = v2[key]
+                vals1.append(val1)
+                vals2.append(val2)
+                n_first_and_second_tot += 1             
+                if val1==val2: n_first_and_second_eq += 1
+            elif key in v1 and key not in v2:
+                n_first_minus_second += 1
+            elif key not in v1 and key in v2:
+                n_second_minus_first += 1                    
+        # initialize stat item
+        item = {
+            'name': key,
+            'eq': n_first_and_second_tot==n_first_and_second_eq,            
+            'n(1-2)': n_first_minus_second,
+            'n(2-1)': n_second_minus_first,
+            'ntot(1&2)': n_first_and_second_tot,
+            'neq(1&2)': n_first_and_second_eq,
+        }
+        if key in typehead1: item['type(1)'] = typehead1[key].__name__
+        if key in typehead2: item['type(2)'] = typehead2[key].__name__
+        # set results for MADIFF
+        if typehead1[key] in {int,float} and typehead1[key] in {int,float} and len(vals1)>0:
+            item['madiff(1&2)'] = MADIFF(vals1,vals2)
+        # set results for custom comparison functions
+        if key in keyfuncs:
+            for funcname in keyfuncs[key]:
+                if len(vals1)==0: continue
+                func = compfuncs[funcname]['func']
+                item[funcname] = func(vals1,vals2)
+        # add item to stat collection
+        stat.__dicthash__[key] = item
+        
+    stat.order = 'name eq type(1) type(2) n(1-2) n(2-1) ntot(1&2) neq(1&2) madiff(1&2)'.split()
+    stat.order += list(compfuncs)
+    
+    return stat
+
 ######################################################################
 # RECURSIVE COMPARISON OF THE ARBITRARY DATA STRUCTURES, "DIFF". #####
 # SHOULD CORRECTLY COMPARE NESTED STRUCTURES OF DICTS ################
