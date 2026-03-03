@@ -1081,6 +1081,10 @@ class Collection:
             del self.__dicthash__[ID]
         
     def group(self,expr): # TODO: add process_exp
+        # special case: grouping by __ID__
+        if expr=='__ID__':
+            return {k:[k] for k in self.__dicthash__}
+        # normal grouping by expression
         buffer = {}
         if type(expr)==str:
             #expr_ = eval('lambda var: var["' + expr + '"]') # simple
