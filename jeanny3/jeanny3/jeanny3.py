@@ -20,7 +20,7 @@ from time import time, sleep
 from datetime import date, datetime
 from datetime import datetime
 from warnings import warn,simplefilter
-from itertools import cycle
+from itertools import cycle, count
 from multiprocessing import Pool, Lock
 
 # increase the csv field size limit
@@ -1346,7 +1346,7 @@ class Collection:
     # ======================= CSV ===========================
     # =======================================================
     
-    def import_csv(self,filename,delimiter=';',quotechar='"',header=None,duck=True): # old_version
+    def import_csv(self,filename,delimiter=';',quotechar='"',header=None,duck=True): # old reliable version
         """
         Reads csv-formatted files in more or less robust way.
         Includes avoiding many parsing errors due to "illegal"
@@ -1392,7 +1392,7 @@ class Collection:
         self.order = colnames
         return {'nitems':nitems}
         
-    def import_csv_(self,filename): # new_version
+    def import_csv_(self,filename): # new version
         """
         Reads csv-formatted files in more or less robust way.
         Includes avoiding many parsing errors due to "illegal"
@@ -2946,8 +2946,73 @@ def load_dotpar(line):
     )   
     if item['local_iso_id']==10: item['local_iso_id']=0
     return item
+
+def stream_dotpar(filename,index=None,nbatch=None):
+    """
+    Stream HITRAN-formatted files ("dotpar").
+    
+    Parameters:
+    
+        filename: name of the input HITRAN file
         
-def import_dotpar(filename):
+        index: optional indexing function
+        
+        nbatch: size of each collection
+    """
+    
+    if nbatch is None: nbatch=1000000
+    
+    if index is None:
+        counter = count()
+        def index(item):
+            return next(counter)
+
+    with open(filename,'r') as f:
+                        
+        #nitems = 0
+        batch_counter = 0
+        batch_flushed = True
+                
+        #for vals in reader:
+        while True:
+            
+            if batch_flushed:
+                col = Collection()
+                batch_flushed = False
+            
+            line = f.readline()
+            if line=='': break
+            
+            #nitems += 1
+            batch_counter +=1
+                        
+            # create item
+            item = load_dotpar(line)
+                
+            # append item to dicthash
+            indexval = index(item)
+            if indexval in col.__dicthash__:
+                raise Exception('Index is not unique: %s'%indexval)
+            col.__dicthash__[indexval] = item
+            
+            if batch_counter==nbatch:
+                    batch_counter = 0
+                    batch_flushed = True
+                    col.order = list(item.keys())
+                    yield col
+                            
+    if batch_counter>0:
+        yield col    
+
+def import_dotpar_(filename,index=None,nbatch=None): # streamed version
+    """ stream version of import_dotpar """
+    col = Collection()
+    for col_ in stream_dotpar(filename=filename,index=index,nbatch=nbatch):
+        col.__dicthash__.update(col_.__dicthash__)
+    col.order = col_.order
+    return col
+
+def import_dotpar(filename): # old version without stream
     col = Collection()
     with open(filename) as f:
         for line in f:
@@ -2959,6 +3024,113 @@ def import_dotpar(filename):
 def import_fixcol(filename,*args,**kwargs):
     col = Collection()
     col.import_fixcol(filename,*args,**kwargs)
+    return col
+
+def stream_csv(filename,delimiter=';',quotechar='"',header=None,
+    duck=True,index=None,nbatch=None):
+    """
+    Stream CSV files in more or less robust way.
+    Includes avoiding many parsing errors due to "illegal"
+    usage of delimiters and quotes.
+    
+    Parameters:
+    
+        filename: name of the input CSV file
+        
+        delimiter: CSV delimiter, semicolon by default
+        
+        quotechar: specifies which character is used to outline strings
+        
+        header: list of column names
+        
+        duck: "duck" typing flag, true by default
+        
+        index: optional indexing function
+        
+        nbatch: size of each collection
+    """
+    
+    if nbatch is None: nbatch=1000000
+    
+    if index is None:
+        counter = count()
+        def index(item):
+            return next(counter)
+
+    with open(filename,'r') as f:
+                
+        reader = csv.reader(f,delimiter=delimiter,quotechar=quotechar)
+        
+        if not header:                
+            colnames = next(reader) # take the first line as header (even if it's really absent)
+        else:
+            colnames = header            
+        
+        #nitems = 0
+        batch_counter = 0
+        batch_flushed = True
+                
+        #for vals in reader:
+        while True:
+            
+            if batch_flushed:
+                col = Collection()
+                col.order = colnames 
+                batch_flushed = False
+            
+            vals = next(reader,None)
+            if vals is None: break
+            
+            #nitems += 1
+            batch_counter +=1
+                        
+            # create item
+            item = {}
+            for colname,val in zip(colnames,vals):
+                if val in [None,'']: continue
+                if duck: # duck typing
+                    try:
+                        val = int(val)
+                    except ValueError as e:
+                        try:
+                            val = float(val)
+                        except ValueError as e:
+                            if val.strip().lower() in ['f','false','.false.']:
+                                val = False
+                            elif val.strip().lower() in ['t','true','.true.']:
+                                val = True
+                            else:
+                                pass
+                if type(val) in [str,unicode]: # encoding problems 
+                    try:
+                        unicode(val)
+                    except UnicodeDecodeError:
+                        raise Exception('encoding/decoding problems with %s'%val)
+                #if val: item[colname] = val
+                item[colname] = val
+                
+            # append item to dicthash
+            indexval = index(item)
+            if indexval in col.__dicthash__:
+                raise Exception('Index is not unique: %s'%indexval)
+            col.__dicthash__[indexval] = item
+            
+            if batch_counter==nbatch:
+                    batch_counter = 0
+                    batch_flushed = True
+                    yield col
+                            
+    if batch_counter>0:
+        yield col
+
+def import_csv_(filename,delimiter=';',quotechar='"',header=None,duck=True,index=None,nbatch=None):
+    """ streamed version of import_csv """
+    col = Collection()
+    for col_ in stream_csv(filename=filename,delimiter=delimiter,
+                            quotechar=quotechar,header=header,
+                            duck=duck,index=index,nbatch=nbatch):
+        col.__dicthash__.update(col_.__dicthash__)
+    col.order = col_.order
     return col
 
 def import_csv(filename,*args,**kwargs):
