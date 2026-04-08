@@ -2570,7 +2570,8 @@ class Collection:
         """
         col = Collection()
         results_gen = self.submit_(func,nprocs=nprocs,chunksize=chunksize)
-        for ID,item in results_gen:
+        for item in results_gen:
+            ID = item['__id__']
             col.__dicthash__[ID] = item
             if join_item:
                 col.__dicthash__[ID]['__item__'] = self.getitem(ID)
@@ -5782,8 +5783,9 @@ class JobParameters:
 
 class JobResult:
     
-    def __init__(self,jobpars,finished=None,output=None,error=None):
+    def __init__(self,jobpars,ID,finished=None,output=None,error=None):
         self.jobpars = jobpars
+        self.ID = ID
         self.started = datetime.today()
         self.finished = finished
         self.output = output
@@ -5796,6 +5798,8 @@ class JobResult:
         
         #logitem = jobpars.__item__.copy()
         logitem = {}
+        
+        logitem['__id__'] = self.ID
         
         logitem['__started__'] = self.started.isoformat()
                 
@@ -5845,7 +5849,7 @@ class JobWrapper:
                 
         jobpars = JobParameters(item)
         
-        result = JobResult(jobpars=jobpars)
+        result = JobResult(jobpars=jobpars,ID=ID)
         
         mem_before = process_memory()
         
@@ -5866,7 +5870,7 @@ class JobWrapper:
             mem_after = process_memory()
             result.ram = mem_after-mem_before
             json = result.to_dict()
-            return ID,json
+            return json
 
 class JobWrapperMeta(type): # not used so far
                         
@@ -5886,7 +5890,7 @@ class JobWrapperMeta(type): # not used so far
                     
             jobpars = JobParameters(item)
             
-            result = JobResult(jobpars=jobpars)
+            result = JobResult(jobpars=jobpars,ID=ID)
             
             mem_before = process_memory()
             
@@ -5907,7 +5911,7 @@ class JobWrapperMeta(type): # not used so far
                 mem_after = process_memory()
                 result.ram = mem_after-mem_before
                 json = result.to_dict()
-                return ID,json
+                return json
 
         # add static methods
         #dct['__init__'] = __init__
