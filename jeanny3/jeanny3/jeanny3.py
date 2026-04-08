@@ -5783,13 +5783,14 @@ class JobParameters:
 
 class JobResult:
     
-    def __init__(self,jobpars,ID,finished=None,output=None,error=None):
+    def __init__(self,jobpars,ID,finished=None,output=None,error=None,stdout=None):
         self.jobpars = jobpars
         self.ID = ID
         self.started = datetime.today()
         self.finished = finished
         self.output = output
         self.error = error
+        self.stdout = stdout
         self.ram = None
         
     def to_dict(self):
@@ -5802,6 +5803,7 @@ class JobResult:
         logitem['__id__'] = self.ID
         
         logitem['__started__'] = self.started.isoformat()
+        logitem['__stdout__'] = self.stdout
                 
         if not self.error:
             logitem['__finished__'] = self.finished.isoformat()
@@ -5840,6 +5842,10 @@ class JobWrapper:
         
     def __call__(self,pair):
         
+        import io
+        import sys
+        from contextlib import redirect_stdout
+        
         ID,item= pair
         
         job = self.__job__
@@ -5850,12 +5856,28 @@ class JobWrapper:
         jobpars = JobParameters(item)
         
         result = JobResult(jobpars=jobpars,ID=ID)
+        stdout_buffer = io.StringIO()
+        
+        class _TeeStdout:
+            def __init__(self,*streams):
+                self.streams = streams
+            def write(self,data):
+                for stream in self.streams:
+                    stream.write(data)
+                return len(data)
+            def flush(self):
+                for stream in self.streams:
+                    stream.flush()
+            def isatty(self):
+                return any(getattr(stream,'isatty',lambda: False)() for stream in self.streams)
         
         mem_before = process_memory()
         
         try: # try to run job in its working directory
             t = time()
-            output = job(item)
+            tee_stdout = _TeeStdout(sys.stdout,stdout_buffer)
+            with redirect_stdout(tee_stdout):
+                output = job(item)
             result.finished = datetime.now()
             #time_elapsed = time()-t
             time_elapsed = result.elapsed            
@@ -5867,6 +5889,7 @@ class JobWrapper:
             )
         finally: # do some logging and save results
             os.chdir(rootpath)
+            result.stdout = stdout_buffer.getvalue()
             mem_after = process_memory()
             result.ram = mem_after-mem_before
             json = result.to_dict()
@@ -5881,6 +5904,10 @@ class JobWrapperMeta(type): # not used so far
             
         def __call__(self,pair):
             
+            import io
+            import sys
+            from contextlib import redirect_stdout
+            
             ID,item = pair
             
             job = self.__job__
@@ -5891,12 +5918,28 @@ class JobWrapperMeta(type): # not used so far
             jobpars = JobParameters(item)
             
             result = JobResult(jobpars=jobpars,ID=ID)
+            stdout_buffer = io.StringIO()
+            
+            class _TeeStdout:
+                def __init__(self,*streams):
+                    self.streams = streams
+                def write(self,data):
+                    for stream in self.streams:
+                        stream.write(data)
+                    return len(data)
+                def flush(self):
+                    for stream in self.streams:
+                        stream.flush()
+                def isatty(self):
+                    return any(getattr(stream,'isatty',lambda: False)() for stream in self.streams)
             
             mem_before = process_memory()
             
             try: # try to run job in its working directory
                 t = time()
-                output = job(item)
+                tee_stdout = _TeeStdout(sys.stdout,stdout_buffer)
+                with redirect_stdout(tee_stdout):
+                    output = job(item)
                 result.finished = datetime.now()
                 #time_elapsed = time()-t
                 time_elapsed = result.elapsed            
@@ -5908,6 +5951,7 @@ class JobWrapperMeta(type): # not used so far
                 )
             finally: # do some logging and save results
                 os.chdir(rootpath)
+                result.stdout = stdout_buffer.getvalue()
                 mem_after = process_memory()
                 result.ram = mem_after-mem_before
                 json = result.to_dict()
