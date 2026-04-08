@@ -10,6 +10,7 @@ import shutil
 import string
 import hashlib
 import traceback
+import subprocess
 
 import types
 import uuid as uuidmod
@@ -6012,3 +6013,20 @@ class Job:
         
     def __func__(self):
         raise NotImplementedError       
+
+def run_command(command):
+    """ Wrapper for running non-Python programs through CLI with full stdout capture """
+    
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, # joining stderr and stdout
+        text=True
+    )
+
+    # reading output line by line and write to sys.stdout (which is now TeeStdout)
+    for line in process.stdout:
+        sys.stdout.write(line)
+    
+    process.wait()
