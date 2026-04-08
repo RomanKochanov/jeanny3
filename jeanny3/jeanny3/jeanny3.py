@@ -3138,6 +3138,11 @@ def import_csv(filename,*args,**kwargs):
     col.import_csv(filename,*args,**kwargs)
     return col
 
+def import_folder(foldername='./'):
+    col = Collection()
+    col.import_folder(foldername)
+    return col
+
 def export_to_hapi_cache(col,table_name,LOCAL_TABLE_CACHE,HITRAN_DEFAULT_HEADER):
     def append_par(table,parname,parvalue):
         if parname not in table:
