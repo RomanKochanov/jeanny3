@@ -942,7 +942,10 @@ class Collection:
                 f.write(tabstring+'\n')
         else:
             if in_notebook():
-                from IPython.core.display import display, HTML
+                try:
+                    from IPython.core.display import display, HTML # old versions of IPython
+                except ImportError:
+                    from IPython.display import display, HTML # newer versions of IPython
                 tabstring = tab(zip(*data),colnames,tablefmt='html',floatfmt=floatfmt)
                 display(HTML(tabstring))
             else:
